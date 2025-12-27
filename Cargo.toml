@@ -16,3 +16,6 @@ env_logger = "0.10"
 [features]
 default = []
 llvm = ["inkwell"]
+
+[dev-dependencies]
+# Optional: to run codegen tests locally enable features in cargo test invocation
