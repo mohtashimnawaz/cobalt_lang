@@ -45,14 +45,13 @@ fn run_build(input: PathBuf, output: Option<PathBuf>) -> Result<()> {
                 anyhow::bail!("type check failed with {} error(s)", type_errors.len())
             }
 
-            let out = output.clone().unwrap_or_else(|| {
-                let mut p = input.clone();
-                p.set_extension("o");
-                p
-            });
-
             #[cfg(feature = "llvm")]
             {
+                let out = output.clone().unwrap_or_else(|| {
+                    let mut p = input.clone();
+                    p.set_extension("o");
+                    p
+                });
                 use crate::codegen;
                 use std::path::Path;
                 codegen::compile_module_to_object(&module, "cobalt_module", out.as_path())

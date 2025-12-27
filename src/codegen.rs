@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Context, Result};
-use std::collections::HashMap;
+use anyhow::{anyhow, Result};
 
-use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Literal, Module, Param, Type};
+use crate::ast::{Module, Type};
 
 /// Public API: compile a `Module` to LLVM IR as a String.
 /// If the crate is built without the `llvm` feature this returns an error instructing how to enable it.
@@ -13,6 +12,8 @@ pub fn compile_module_to_ir(_module: &Module, _name: &str) -> Result<String> {
 #[cfg(feature = "llvm")]
 mod llvm_codegen {
     use super::*;
+    use std::collections::HashMap;
+    use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Literal, Param};
     use inkwell::builder::Builder;
     use inkwell::context::Context;
     use inkwell::module::Module as LLVMModule;

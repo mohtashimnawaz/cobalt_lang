@@ -236,8 +236,6 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
                 Err(vec![TypeError::new("call to non-function expression not supported", *span)])
             }
         }
-        Expr::Call { .. } => Err(vec![TypeError::new("invalid call expression", None)]),
-        _ => Err(vec![TypeError::new("unsupported expression in type checker", None)]),
     }
 }
 
@@ -249,7 +247,6 @@ fn extract_span_from_expr(e: &Expr) -> Option<Span> {
         Expr::If { span, .. } => *span,
         Expr::Let { span, .. } => *span,
         Expr::Call { span, .. } => *span,
-        _ => None,
     }
 }
 

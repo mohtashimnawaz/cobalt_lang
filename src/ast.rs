@@ -124,6 +124,7 @@ pub struct Module {
 }
 
 impl Module {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self { items: Vec::new() }
     }

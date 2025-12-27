@@ -74,6 +74,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn try_consume_ident(&mut self) -> Option<String> {
         if let Some((Token::Ident(name), _s)) = self.tokens.get(self.pos) {
             let name = name.clone();
@@ -84,6 +85,7 @@ impl Parser {
         }
     }
 
+    #[allow(dead_code)]
     fn try_consume(&mut self, tok_pat: Token) -> Option<Span> {
         if let Some((tok, span)) = self.tokens.get(self.pos) {
             if *tok == tok_pat {
@@ -347,7 +349,6 @@ impl Parser {
             Expr::If { span, .. } => span.map(|s| (s.start, s.end)),
             Expr::Let { span, .. } => span.map(|s| (s.start, s.end)),
             Expr::Call { span, .. } => span.map(|s| (s.start, s.end)),
-            _ => None,
         }
     }
 }
@@ -402,7 +403,7 @@ mod tests_token_parser {
     #[test]
     fn parse_expr_via_tokens() {
         let e = parse_expr("1 + 2 * 3").expect("parse expr");
-        if let Expr::Binary(BinaryExpr { op: BinaryOp::Add, left, right, .. }) = e {
+        if let Expr::Binary(BinaryExpr { op: BinaryOp::Add, left, right: _, .. }) = e {
             assert!(matches!(*left, Expr::Literal(Literal::Int(1))));
         } else { panic!("expected add top-level") }
     }
