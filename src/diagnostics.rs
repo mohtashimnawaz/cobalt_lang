@@ -1,14 +1,17 @@
-use ariadne::{Report, ReportKind, Label, Source};
+use ariadne::{Report, ReportKind, Label, Source, sources::SimpleCache};
 use crate::parser::ParseError;
 
 /// Print parse errors using `ariadne` with spans and messages.
 pub fn report_parse_errors(source: &str, filename: &str, errors: &[ParseError]) {
+    // Build a simple cache containing our file so `Report::print` can lookup the source
+    let mut cache = SimpleCache::new();
+    cache.add(filename, Source::from(source));
+
     for err in errors {
         let start = err.span.map(|s| s.start).unwrap_or(0);
         let end = err.span.map(|s| s.end).unwrap_or(start);
-        // Use owned String as the source id to satisfy ariadne's type bounds
-        let src_id = filename.to_string();
-        let mut r = Report::build::<String>(ReportKind::Error, src_id.clone(), start)
+
+        let mut r = Report::build(ReportKind::Error, filename, start)
             .with_message(err.msg.clone());
 
         if start != end {
@@ -18,6 +21,6 @@ pub fn report_parse_errors(source: &str, filename: &str, errors: &[ParseError]) 
         }
 
         let report = r.finish();
-        let _ = report.print((src_id, Source::from(source)));
+        let _ = report.print(&mut cache);
     }
 }
