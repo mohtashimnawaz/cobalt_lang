@@ -124,13 +124,13 @@ impl Parser {
                         let ty = match self.bump() {
                             Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
                             Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
-                            Some((tok, span)) => return Err(format!("unexpected token in param type: {:?} at {}..{}", tok, span.start, span.end)),
-                            None => return Err("unexpected EOF in parameter list".to_string()),
+                            Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in param type: {:?}", tok), Some(span))),
+                            None => return Err(ParseError::new("unexpected EOF in parameter list", None)),
                         };
                         params.push(Param { name: param_name, ty });
                         if let Some(Token::Comma) = self.peek() { self.bump(); continue; }
                         if let Some(Token::RParen) = self.peek() { self.bump(); break; }
-                        return Err("unexpected token in parameter list".to_string());
+                        return Err(ParseError::new("unexpected token in parameter list", self.peek_span()));
                     }
                 }
 
@@ -140,8 +140,8 @@ impl Parser {
                     match self.bump() {
                         Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
                         Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
-                        Some((tok, span)) => return Err(format!("unexpected token in return type: {:?} at {}..{}", tok, span.start, span.end)),
-                        None => return Err("unexpected EOF after ->".to_string()),
+                        Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in return type: {:?}", tok), Some(span))),
+                        None => return Err(ParseError::new("unexpected EOF after ->", None)),
                     }
                 } else { Type::I32 };
 
@@ -239,7 +239,7 @@ impl Parser {
         }
         Ok(left)
     }
-    fn parse_primary(&mut self) -> Result<Expr, String> {
+    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         if let Some((tok_clone, _span)) = self.tokens.get(self.pos).cloned() {
             match tok_clone {
                 Token::Int(i) => {
@@ -261,7 +261,7 @@ impl Parser {
                                     args.push(arg);
                                     if let Some((Token::Comma, _)) = self.tokens.get(self.pos) { self.bump(); continue; }
                                     if let Some((Token::RParen, _)) = self.tokens.get(self.pos) { self.bump(); break; }
-                                    return Err("unexpected token in call arguments".to_string());
+                                    return Err(ParseError::new("unexpected token in call arguments", self.peek_span()));
                                 }
                             }
                             return Ok(Expr::Call { callee: Box::new(Expr::Var(name)), args, span: None });
@@ -299,9 +299,9 @@ impl Parser {
                     let span = Self::merge_spans(&value, &body);
                     Ok(Expr::Let { name, value: Box::new(value), body: Box::new(body), span: Some(span) })
                 }
-                other => Err(format!("unexpected token in primary: {:?}", other)),
+                other => Err(ParseError::new(format!("unexpected token in primary: {:?}", other), self.peek_span())),
             }
-        } else { Err("unexpected EOF in expression".to_string()) }
+        } else { Err(ParseError::new("unexpected EOF in expression", None)) }
     }
 
     fn merge_spans(a: &Expr, b: &Expr) -> Span {
