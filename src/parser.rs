@@ -165,20 +165,20 @@ impl Parser {
         }
     }
 
-    // Public wrapper for parsing an expression which collects errors into Vec<String>
-    fn parse_expr(&mut self) -> Result<Expr, Vec<String>> {
+    // Public wrapper for parsing an expression which collects errors into Vec<ParseError>
+    fn parse_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
         match self.parse_expr_inner() {
             Ok(e) => Ok(e),
             Err(err) => Err(vec![err]),
         }
     }
 
-    // Inner parser functions return single descriptive error strings and are composed above
-    fn parse_expr_inner(&mut self) -> Result<Expr, String> {
+    // Inner parser functions return single `ParseError` values and are composed above
+    fn parse_expr_inner(&mut self) -> Result<Expr, ParseError> {
         self.parse_logic_or()
     }
 
-    fn parse_logic_or(&mut self) -> Result<Expr, String> {
+    fn parse_logic_or(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_logic_and()?;
         while let Some(Token::Or) = self.peek() {
             let _ = self.bump();
@@ -189,7 +189,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_logic_and(&mut self) -> Result<Expr, String> {
+    fn parse_logic_and(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_cmp()?;
         while let Some(Token::And) = self.peek() {
             let _ = self.bump();
@@ -200,7 +200,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_cmp(&mut self) -> Result<Expr, String> {
+    fn parse_cmp(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_sum()?;
         loop {
             match self.peek() {
@@ -216,7 +216,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_sum(&mut self) -> Result<Expr, String> {
+    fn parse_sum(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_product()?;
         loop {
             match self.peek() {
@@ -228,7 +228,7 @@ impl Parser {
         Ok(left)
     }
 
-    fn parse_product(&mut self) -> Result<Expr, String> {
+    fn parse_product(&mut self) -> Result<Expr, ParseError> {
         let mut left = self.parse_primary()?;
         loop {
             match self.peek() {
@@ -239,7 +239,6 @@ impl Parser {
         }
         Ok(left)
     }
-
     fn parse_primary(&mut self) -> Result<Expr, String> {
         if let Some((tok_clone, _span)) = self.tokens.get(self.pos).cloned() {
             match tok_clone {
