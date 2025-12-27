@@ -1,6 +1,6 @@
 use ariadne::{Report, ReportKind, Label, Source};
 use crate::parser::ParseError;
-use crate::ty::TypeError;
+use crate::ty::{TypeError, TypeWarning};
 
 /// Print parse errors using `ariadne` with spans and messages.
 pub fn report_parse_errors(source: &str, filename: &str, errors: &[ParseError]) {

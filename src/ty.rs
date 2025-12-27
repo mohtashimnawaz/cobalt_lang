@@ -52,10 +52,23 @@ impl TypeError {
     }
 }
 
-/// Type-check a whole module and return a Vec of `TypeError`s if any
-pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
-    println!("[ty] type_check_module: start");
+/// A simple warning emitted by the type checker (not fatal)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TypeWarning {
+    pub msg: String,
+    pub span: Option<Span>,
+}
+
+impl TypeWarning {
+    pub fn new<M: Into<String>>(msg: M, span: Option<Span>) -> Self {
+        Self { msg: msg.into(), span }
+    }
+}
+
+/// Internal core that returns (errors, warnings)
+fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
     let mut errors = Vec::new();
+    let mut warnings = Vec::new();
     let mut sym = SymbolTable::new();
 
     // First pass: collect top-level function signatures and top-level lets
@@ -68,20 +81,26 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
                     errors.push(TypeError::new(format!("function `{}` redeclared", name), None));
                 }
             }
-            Item::Let { name, ty, value, .. } => {
+            Item::Let { name, ty, value, span } => {
                 // try type-check value; if ok, record its type; if there is an annotated type, check it
                 match type_of_expr(value, &sym) {
                     Ok(inferred) => {
                         if let Some(declared) = ty {
                             if *declared != inferred {
-                                errors.push(TypeError::new(format!("top-level let `{}` declared as {:?} but value has type {:?}", name, declared, inferred), extract_span_from_expr(value)));
+                                errors.push(TypeError::new(format!("top-level let `{}` declared as {:?} but value has type {:?}", name, declared, inferred), span.or_else(|| extract_span_from_expr(value))));
                                 // still insert the declared type to be conservative
-                                sym.insert(name.clone(), declared.clone());
+                                if sym.insert(name.clone(), declared.clone()).is_some() {
+                                    warnings.push(TypeWarning::new(format!("top-level let `{}` shadows previous binding", name), span.or_else(|| extract_span_from_expr(value))));
+                                }
                             } else {
-                                sym.insert(name.clone(), inferred);
+                                if sym.insert(name.clone(), inferred).is_some() {
+                                    warnings.push(TypeWarning::new(format!("top-level let `{}` shadows previous binding", name), span.or_else(|| extract_span_from_expr(value))));
+                                }
                             }
                         } else {
-                            sym.insert(name.clone(), inferred);
+                            if sym.insert(name.clone(), inferred).is_some() {
+                                warnings.push(TypeWarning::new(format!("top-level let `{}` shadows previous binding", name), span.or_else(|| extract_span_from_expr(value))));
+                            }
                         }
                     }
                     Err(mut es) => errors.append(&mut es),
@@ -90,12 +109,9 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
         }
     }
 
-    println!("[ty] after first pass, sym = {:?}", sym);
-
     // Second pass: type-check function bodies (with params in scope)
     for item in &module.items {
-        if let Item::Function { name, params, ret_type, body, span: _ } = item {
-            println!("[ty] checking function {}", name);
+        if let Item::Function { name, params, ret_type, body, span } = item {
             sym.push();
             for p in params {
                 sym.insert(p.name.clone(), p.ty.clone());
@@ -105,7 +121,7 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
                     if body_ty != *ret_type {
                         errors.push(TypeError::new(
                             format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
-                            extract_span_from_expr(body),
+                            span.or_else(|| extract_span_from_expr(body)),
                         ));
                     }
                 }
@@ -115,7 +131,19 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
         }
     }
 
+    (errors, warnings)
+}
+
+/// Type-check a whole module and return a Vec of `TypeError`s if any (backwards compat)
+pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
+    let (errors, _warnings) = type_check_core(module);
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Run type-check and also return non-fatal warnings
+pub fn type_check_module_with_warnings(module: &Module) -> (Result<(), Vec<TypeError>>, Vec<TypeWarning>) {
+    let (errors, warnings) = type_check_core(module);
+    if errors.is_empty() { (Ok(()), warnings) } else { (Err(errors), warnings) }
 }
 
 fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> {
@@ -186,19 +214,15 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
             }
         }
         Expr::Call { callee, args, span } => {
-            println!("[ty] Expr::Call: callee={:?} args={:?} span={:?}", callee, args, span);
             // only support direct variable callee
             if let Expr::Var(fn_name) = &**callee {
-                println!("[ty] callee name = {}", fn_name);
                 if let Some(Type::Func { params, ret }) = env.lookup(fn_name) {
-                    println!("[ty] found function {} params={:?} ret={:?}", fn_name, params, ret);
                     let mut errors = Vec::new();
                     if params.len() != args.len() {
                         errors.push(TypeError::new(format!("function `{}` expects {} args but {} were supplied", fn_name, params.len(), args.len()), *span));
                         return Err(errors);
                     }
                     for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
-                        println!("[ty] checking arg {} against expected {:?}", i, expected);
                         match type_of_expr(arg, env) {
                             Ok(t) => if &t != expected { errors.push(TypeError::new(format!("argument {} to `{}` expected {:?} but found {:?}", i, fn_name, expected, t), extract_span_from_expr(arg))); }
                             Err(mut es) => errors.append(&mut es),
