@@ -142,6 +142,7 @@ impl Parser {
                     self.bump();
                     match self.bump() {
                         Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                        Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
                         Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
                         Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in return type: {:?}", tok), Some(span))),
                         None => return Err(ParseError::new("unexpected EOF after ->", None)),
@@ -267,10 +268,8 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         if let Some((tok_clone, _span)) = self.tokens.get(self.pos).cloned() {
             match tok_clone {
-                Token::Int(i) => {
-                    self.bump();
-                    Ok(Expr::Literal(Literal::Int(i)))
-                }
+                Token::Float(f) => { self.bump(); Ok(Expr::Literal(Literal::Float(f))) }
+                Token::Int(i) => { self.bump(); Ok(Expr::Literal(Literal::Int(i))) }
                 Token::True => { self.bump(); Ok(Expr::Literal(Literal::Bool(true))) }
                 Token::False => { self.bump(); Ok(Expr::Literal(Literal::Bool(false))) }
                 Token::Ident(name) => {

@@ -22,6 +22,7 @@ pub struct Span {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     I32,
+    F64,
     Bool,
     /// A function type: (param types...) -> return type
     Func { params: Vec<Type>, ret: Box<Type> },
@@ -30,6 +31,7 @@ pub enum Type {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Literal {
     Int(i32),
+    Float(f64),
     Bool(bool),
 }
 

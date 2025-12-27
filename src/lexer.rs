@@ -74,8 +74,14 @@ pub enum Token {
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
 
+    // Float literal (simple form, digits.digits)
+    #[regex(r"[0-9]+\.[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
+    Float(f64),
+
+    // NOTE: logos requires that callback types match; use `.ok()` above to return Option and handle push filtering later
+
     // Integer literal
-    #[regex(r"[0-9]+", |lex| lex.slice().parse::<i32>().unwrap())]
+    #[regex(r"[0-9]+", |lex| lex.slice().parse::<i32>().ok())]
     Int(i32),
 
     // Whitespace (skipped)
@@ -98,7 +104,19 @@ pub fn tokenize(src: &str) -> Vec<SpannedToken> {
                     continue;
                 }
                 let span = lexer.span();
-                out.push((tok, Span { start: span.start, end: span.end }));
+                // Only push tokens that successfully parsed their inner data. Logos returns variants even on parse failure when using `.ok()` callbacks.
+                match tok {
+                    Token::Int(_) | Token::Float(_) | Token::Ident(_) | Token::Let | Token::Fn | Token::If | Token::Then | Token::Else
+                    | Token::In | Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::EqEq | Token::Ne | Token::Le | Token::Ge
+                    | Token::Lt | Token::Gt | Token::And | Token::Or | Token::Assign | Token::Semi | Token::Comma | Token::LParen | Token::RParen
+                    | Token::LBrace | Token::RBrace | Token::Arrow | Token::Colon | Token::True | Token::False => {
+                        out.push((tok, Span { start: span.start, end: span.end }));
+                    }
+                    _ => {
+                        // skip invalid tokens
+                        continue;
+                    }
+                }
             }
             Err(_) => {
                 // For now skip lexing errors; later we will report them with spans
