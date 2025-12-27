@@ -299,6 +299,25 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                 Err(vec![TypeError::new("call to non-function expression not supported", *span)])
             }
         }
+        Expr::Cast { expr, ty, span } => {
+            // Any explicit cast: perform and warn on narrowing
+            match type_of_expr(expr, env, warnings) {
+                Ok(src_ty) => {
+                    let rs = type_rank(&src_ty);
+                    let rd = type_rank(ty);
+                    if let (Some(rs), Some(rd)) = (rs, rd) {
+                        if rs > rd {
+                            if let Some(s) = *span { warnings.push(TypeWarning::new(format!("narrowing cast from {} to {}", type_name(&src_ty), type_name(ty)), Some(s))); }
+                        }
+                    } else {
+                        // casting involving bool or other combos; emit non-fatal suggestion
+                        if let Some(s) = *span { warnings.push(TypeWarning::new(format!("cast from {} to {}; consider explicit conversion if unexpected", type_name(&src_ty), type_name(ty)), Some(s))); }
+                    }
+                    Ok(ty.clone())
+                }
+                Err(mut es) => Err(es),
+            }
+        }
     }
 }
 
@@ -310,6 +329,7 @@ fn extract_span_from_expr(e: &Expr) -> Option<Span> {
         Expr::If { span, .. } => *span,
         Expr::Let { span, .. } => *span,
         Expr::Call { span, .. } => *span,
+        Expr::Cast { span, .. } => *span,
     }
 }
 
@@ -403,6 +423,42 @@ mod tests {
         let module = parse_module(src).expect("parse module");
         let err = type_check_module(&module).unwrap_err();
         assert!(err.iter().any(|e| e.msg.contains("top-level let `x` declared as")));
+    }
+
+    #[test]
+    fn casting_narrowing_warns() {
+        let src = "fn f() -> i32 { (2.5 as i32) }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("narrowing cast")));
+    }
+
+    #[test]
+    fn casting_no_warn_widening() {
+        let src = "fn f() -> f64 { (1 as f64) }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().all(|w| !w.msg.contains("narrowing cast")));
+    }
+
+    #[test]
+    fn Promotion_i64_from_let() {
+        let src = "let x: i64 = 1 fn f() -> i64 { x + 2 }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("promoted i32 to i64")));
+    }
+
+    #[test]
+    fn Promotion_i64_f32() {
+        let src = "let x: i64 = 1 fn f() -> f32 { x + 1.5 }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("promoted i64 to f32") || w.msg.contains("promoted i32 to f32")));
     }
 
     #[test]
