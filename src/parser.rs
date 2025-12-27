@@ -110,6 +110,7 @@ impl Parser {
     fn parse_item(&mut self) -> Result<Item, ParseError> {
         match self.peek() {
             Some(Token::Fn) => {
+                let start_span = self.peek_span();
                 self.bump(); // consume fn
                 let name = self.expect_ident()?;
                 // params
@@ -148,10 +149,14 @@ impl Parser {
                 // body is an expression in braces
                 self.expect_token(Token::LBrace)?;
                 let body = self.parse_expr_inner()?;
-                self.expect_token(Token::RBrace)?;
-                Ok(Item::Function { name, params, ret_type, body, span: None })
+                let rbrace_span = self.expect_token(Token::RBrace)?;
+
+                let span = start_span.map(|s| Span { start: s.start, end: rbrace_span.end }).or_else(|| extract_span_from_expr(&body));
+
+                Ok(Item::Function { name, params, ret_type, body, span })
             }
             Some(Token::Let) => {
+                let start_span = self.peek_span();
                 self.bump();
                 let name = self.expect_ident()?;
                 // optional type annotation: `: i32` or `: bool`
@@ -167,9 +172,16 @@ impl Parser {
 
                 self.expect_token(Token::Assign)?;
                 let value = self.parse_expr_inner()?;
+                let end_span = extract_span_from_expr(&value).unwrap_or(start_span);
                 // allow optional semicolon
                 if let Some(Token::Semi) = self.peek() { self.bump(); }
-                Ok(Item::Let { name, ty, value, span: None })
+                let span = match (start_span, end_span) {
+                    (Some(s), Some(e)) => Some(Span { start: s.start, end: e.end }),
+                    (Some(s), None) => Some(s),
+                    (None, Some(e)) => Some(e),
+                    _ => None,
+                };
+                Ok(Item::Let { name, ty, value, span })
             }
             Some(tok) => Err(ParseError::new(format!("unexpected token at top-level: {:?}", tok), self.peek_span())),
             None => Err(ParseError::new("unexpected EOF", None)),
