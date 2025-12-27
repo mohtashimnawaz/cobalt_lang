@@ -390,7 +390,6 @@ mod tests_parser_additional {
 #[cfg(test)]
 mod tests_token_parser {
     use super::*;
-    use crate::lexer::tokenize;
     use crate::ast::{Item, Expr, BinaryExpr, Literal, BinaryOp};
 
     #[test]

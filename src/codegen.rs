@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 
-use crate::ast::{Module, Type};
+use crate::ast::Module;
 
 /// Public API: compile a `Module` to LLVM IR as a String.
 /// If the crate is built without the `llvm` feature this returns an error instructing how to enable it.

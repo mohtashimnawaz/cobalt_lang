@@ -202,7 +202,7 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
             if then_t != else_t { errors.push(TypeError::new("then and else branch types must match", *span)); }
             if errors.is_empty() { Ok(then_t) } else { Err(errors) }
         }
-        Expr::Let { name, value, body, span } => {
+        Expr::Let { name, value, body, span: _ } => {
             let mut errors = Vec::new();
             let vty = match type_of_expr(value, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
             // shadowing allowed; check body in new scope
