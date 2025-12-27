@@ -2,6 +2,7 @@ mod ast;
 mod parser;
 mod lexer;
 mod diagnostics;
+mod ty;
 mod codegen;
 mod cli;
 

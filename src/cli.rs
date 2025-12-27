@@ -35,6 +35,15 @@ fn run_build(input: PathBuf, output: Option<PathBuf>) -> Result<()> {
 
     match crate::parser::parse_module(&src) {
         Ok(module) => {
+            // Run semantic checks (type checker) and emit diagnostics on failure
+            match crate::ty::type_check_module(&module) {
+                Ok(()) => {}
+                Err(type_errors) => {
+                    crate::diagnostics::report_type_errors(&src, input.to_str().unwrap_or("<input>"), &type_errors);
+                    anyhow::bail!("type check failed with {} error(s)", type_errors.len())
+                }
+            }
+
             let out = output.clone().unwrap_or_else(|| {
                 let mut p = input.clone();
                 p.set_extension("o");

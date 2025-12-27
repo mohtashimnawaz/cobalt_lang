@@ -250,8 +250,11 @@ impl Parser {
                 Token::False => { self.bump(); Ok(Expr::Literal(Literal::Bool(false))) }
                 Token::Ident(name) => {
                     // Could be a variable or a call
-                    if let Some((next_tok, _)) = self.tokens.get(self.pos) {
+                    // look at the next token after the identifier to detect a call
+                    if let Some((next_tok, _)) = self.tokens.get(self.pos + 1) {
                         if let Token::LParen = next_tok {
+                            // consume the identifier and the LParen
+                            self.bump(); // consume ident
                             self.bump(); // consume LParen
                             let mut args = Vec::new();
                             if let Some((Token::RParen, _)) = self.tokens.get(self.pos) { self.bump(); }
@@ -269,8 +272,11 @@ impl Parser {
                             self.bump();
                             return Ok(Expr::Var(name));
                         }
+                    } else {
+                        // no next token -> just an identifier/variable
+                        self.bump();
+                        return Ok(Expr::Var(name));
                     }
-                    unreachable!()
                 }
                 Token::LParen => {
                     self.bump();

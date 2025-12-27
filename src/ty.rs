@@ -54,6 +54,7 @@ impl TypeError {
 
 /// Type-check a whole module and return a Vec of `TypeError`s if any
 pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
+    println!("[ty] type_check_module: start");
     let mut errors = Vec::new();
     let mut sym = SymbolTable::new();
 
@@ -77,9 +78,12 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
         }
     }
 
+    println!("[ty] after first pass, sym = {:?}", sym);
+
     // Second pass: type-check function bodies (with params in scope)
     for item in &module.items {
         if let Item::Function { name, params, ret_type, body, span: _ } = item {
+            println!("[ty] checking function {}", name);
             sym.push();
             for p in params {
                 sym.insert(p.name.clone(), p.ty.clone());
@@ -128,9 +132,12 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
                     else { Err(TypeError::new("arithmetic operands must be `i32`", span_clone)) }
                 }
                 BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                    // comparisons operate on i32 for MVP
-                    if lty == Type::I32 && rty == Type::I32 { Ok(Type::Bool) }
-                    else { Err(TypeError::new("comparison operands must be `i32`", span_clone)) }
+                    // Eq/Ne should be polymorphic over i32 and bool (operands must match)
+                    match (&lty, &rty) {
+                        (Type::I32, Type::I32) => Ok(Type::Bool),
+                        (Type::Bool, Type::Bool) => Ok(Type::Bool),
+                        _ => Err(TypeError::new("comparison operands must have the same type (i32 or bool)", span_clone)),
+                    }
                 }
                 BinaryOp::And | BinaryOp::Or => {
                     if lty == Type::Bool && rty == Type::Bool { Ok(Type::Bool) }
@@ -167,15 +174,19 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
             }
         }
         Expr::Call { callee, args, span } => {
+            println!("[ty] Expr::Call: callee={:?} args={:?} span={:?}", callee, args, span);
             // only support direct variable callee
             if let Expr::Var(fn_name) = &**callee {
+                println!("[ty] callee name = {}", fn_name);
                 if let Some(Type::Func { params, ret }) = env.lookup(fn_name) {
+                    println!("[ty] found function {} params={:?} ret={:?}", fn_name, params, ret);
                     let mut errors = Vec::new();
                     if params.len() != args.len() {
                         errors.push(TypeError::new(format!("function `{}` expects {} args but {} were supplied", fn_name, params.len(), args.len()), *span));
                         return Err(errors);
                     }
                     for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
+                        println!("[ty] checking arg {} against expected {:?}", i, expected);
                         match type_of_expr(arg, env) {
                             Ok(t) => if &t != expected { errors.push(TypeError::new(format!("argument {} to `{}` expected {:?} but found {:?}", i, fn_name, expected, t), extract_span_from_expr(arg))); }
                             Err(mut es) => errors.append(&mut es),
@@ -239,6 +250,21 @@ mod tests {
         let module = parse_module(src).expect("parse module");
         let err = type_check_module(&module).unwrap_err();
         assert!(err.iter().any(|e| e.msg.contains("if condition must be `bool`")));
+    }
+
+    #[test]
+    fn eq_bool_ok() {
+        let src = "fn b() -> bool { true == false }";
+        let module = parse_module(src).expect("parse module");
+        assert!(type_check_module(&module).is_ok());
+    }
+
+    #[test]
+    fn eq_mismatch_error() {
+        let src = "fn bad() -> bool { 1 == true }";
+        let module = parse_module(src).expect("parse module");
+        let err = type_check_module(&module).unwrap_err();
+        assert!(err.iter().any(|e| e.msg.contains("comparison operands must have the same type")));
     }
 
     #[test]
