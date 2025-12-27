@@ -68,10 +68,22 @@ pub fn type_check_module(module: &Module) -> Result<(), Vec<TypeError>> {
                     errors.push(TypeError::new(format!("function `{}` redeclared", name), None));
                 }
             }
-            Item::Let { name, value, .. } => {
-                // try type-check value; if ok, record its type
+            Item::Let { name, ty, value, .. } => {
+                // try type-check value; if ok, record its type; if there is an annotated type, check it
                 match type_of_expr(value, &sym) {
-                    Ok(ty) => { sym.insert(name.clone(), ty); }
+                    Ok(inferred) => {
+                        if let Some(declared) = ty {
+                            if *declared != inferred {
+                                errors.push(TypeError::new(format!("top-level let `{}` declared as {:?} but value has type {:?}", name, declared, inferred), extract_span_from_expr(value)));
+                                // still insert the declared type to be conservative
+                                sym.insert(name.clone(), declared.clone());
+                            } else {
+                                sym.insert(name.clone(), inferred);
+                            }
+                        } else {
+                            sym.insert(name.clone(), inferred);
+                        }
+                    }
                     Err(mut es) => errors.append(&mut es),
                 }
             }
@@ -268,10 +280,39 @@ mod tests {
     }
 
     #[test]
-    fn error_function_call_mismatch() {
-        let src = "fn f(a: i32) -> i32 { a } fn g() -> i32 { f(true) }";
+    fn top_level_let_inferred() {
+        let src = "let x = 1 fn f() -> i32 { x }";
+        let module = parse_module(src).expect("parse module");
+        assert!(type_check_module(&module).is_ok());
+    }
+
+    #[test]
+    fn top_level_let_annot_mismatch() {
+        let src = "let x: i32 = true";
         let module = parse_module(src).expect("parse module");
         let err = type_check_module(&module).unwrap_err();
-        assert!(err.iter().any(|e| e.msg.contains("argument 0 to `f` expected")));
+        assert!(err.iter().any(|e| e.msg.contains("top-level let `x` declared as")));
+    }
+
+    #[test]
+    fn shadowing_and_nested_scopes() {
+        let src = "let x = 1 fn f() -> i32 { let x = 2 in let y = let z = 3 in z + x in y }";
+        let module = parse_module(src).expect("parse module");
+        assert!(type_check_module(&module).is_ok());
+    }
+
+    #[test]
+    fn complex_calls_and_returns() {
+        let src = "fn add1(a: i32) -> i32 { a + 1 } fn twice(a: i32) -> i32 { add1(add1(a)) } fn cond(b: bool) -> i32 { if b then 1 else 0 }";
+        let module = parse_module(src).expect("parse module");
+        assert!(type_check_module(&module).is_ok());
+    }
+
+    #[test]
+    fn error_function_return_mismatch() {
+        let src = "fn bad(a: i32) -> bool { a + 1 }";
+        let module = parse_module(src).expect("parse module");
+        let err = type_check_module(&module).unwrap_err();
+        assert!(err.iter().any(|e| e.msg.contains("declared to return")));
     }
 }

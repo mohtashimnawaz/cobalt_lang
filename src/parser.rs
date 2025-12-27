@@ -154,11 +154,22 @@ impl Parser {
             Some(Token::Let) => {
                 self.bump();
                 let name = self.expect_ident()?;
+                // optional type annotation: `: i32` or `: bool`
+                let ty = if let Some(Token::Colon) = self.peek() {
+                    self.bump();
+                    match self.bump() {
+                        Some((Token::Ident(s), _)) if s == "i32" => Some(Type::I32),
+                        Some((Token::Ident(s), _)) if s == "bool" => Some(Type::Bool),
+                        Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in let type: {:?}", tok), Some(span))),
+                        None => return Err(ParseError::new("unexpected EOF in let type", None)),
+                    }
+                } else { None };
+
                 self.expect_token(Token::Assign)?;
                 let value = self.parse_expr_inner()?;
                 // allow optional semicolon
                 if let Some(Token::Semi) = self.peek() { self.bump(); }
-                Ok(Item::Let { name, value, span: None })
+                Ok(Item::Let { name, ty, value, span: None })
             }
             Some(tok) => Err(ParseError::new(format!("unexpected token at top-level: {:?}", tok), self.peek_span())),
             None => Err(ParseError::new("unexpected EOF", None)),

@@ -109,9 +109,10 @@ pub enum Item {
         span: Option<Span>,
     },
 
-    /// Top-level immutable binding: `let name = value` (no body at top level)
+    /// Top-level immutable binding: `let name = value` or `let name: Type = value` (no body at top level)
     Let {
         name: String,
+        ty: Option<Type>,
         value: Expr,
         span: Option<Span>,
     },
