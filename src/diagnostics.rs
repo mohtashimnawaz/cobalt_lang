@@ -41,3 +41,27 @@ pub fn report_type_errors(source: &str, filename: &str, errors: &[TypeError]) {
         }
     }
 }
+
+/// Print semantic/type warnings using `ariadne` as warnings.
+pub fn report_type_warnings(source: &str, filename: &str, warnings: &[TypeWarning]) {
+    for w in warnings {
+        if let Some(span) = w.span {
+            let start = span.start;
+            let end = span.end;
+
+            let report: ariadne::Report<(String, std::ops::Range<usize>)> = Report::build(ReportKind::Warning, filename.to_string(), start)
+                .with_message(w.msg.clone())
+                .with_label(Label::new((filename.to_string(), start..end.max(start+1))).with_message(w.msg.clone()))
+                .finish();
+
+            let _ = report.print((filename.to_string(), Source::from(source)));
+        } else {
+            let start: usize = 0;
+            let report: ariadne::Report<(String, std::ops::Range<usize>)> = Report::build(ReportKind::Warning, filename.to_string(), start)
+                .with_message(w.msg.clone())
+                .finish();
+
+            let _ = report.print((filename.to_string(), Source::from(source)));
+        }
+    }
+}

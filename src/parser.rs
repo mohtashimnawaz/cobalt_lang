@@ -151,7 +151,7 @@ impl Parser {
                 let body = self.parse_expr_inner()?;
                 let rbrace_span = self.expect_token(Token::RBrace)?;
 
-                let span = start_span.map(|s| Span { start: s.start, end: rbrace_span.end }).or_else(|| extract_span_from_expr(&body));
+                let span = start_span.map(|s| Span { start: s.start, end: rbrace_span.end }).or_else(|| Self::expr_span(&body).map(|(s, e)| Span { start: s, end: e }));
 
                 Ok(Item::Function { name, params, ret_type, body, span })
             }
@@ -172,7 +172,7 @@ impl Parser {
 
                 self.expect_token(Token::Assign)?;
                 let value = self.parse_expr_inner()?;
-                let end_span = extract_span_from_expr(&value).unwrap_or(start_span);
+                let end_span = Self::expr_span(&value).map(|(s, e)| Span { start: s, end: e });
                 // allow optional semicolon
                 if let Some(Token::Semi) = self.peek() { self.bump(); }
                 let span = match (start_span, end_span) {

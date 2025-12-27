@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Module, Param, Span, Type};
+use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Module, Span, Type};
 
 /// A stack-based symbol table for scoping
 #[derive(Debug, Default)]
