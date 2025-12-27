@@ -35,7 +35,7 @@ fn run_build(input: PathBuf, output: Option<PathBuf>) -> Result<()> {
 
     match crate::parser::parse_module(&src) {
         Ok(module) => {
-            let out = output.unwrap_or_else(|| {
+            let out = output.clone().unwrap_or_else(|| {
                 let mut p = input.clone();
                 p.set_extension("o");
                 p
@@ -56,7 +56,7 @@ fn run_build(input: PathBuf, output: Option<PathBuf>) -> Result<()> {
                 // Fallback: produce textual IR using compile_module_to_ir if available, otherwise save a .ll-like placeholder
                 match crate::codegen::compile_module_to_ir(&module, "cobalt_module") {
                     Ok(ir) => {
-                        let mut p = output.unwrap_or_else(|| { let mut p = input.clone(); p.set_extension("ll"); p });
+                        let p = output.clone().unwrap_or_else(|| { let mut p = input.clone(); p.set_extension("ll"); p });
                         fs::write(&p, ir).with_context(|| format!("failed to write IR to {:?}", p))?;
                         println!("wrote IR to {:?} (build with --features llvm to emit object files)", p);
                         Ok(())

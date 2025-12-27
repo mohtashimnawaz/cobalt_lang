@@ -6,7 +6,9 @@ pub fn report_parse_errors(source: &str, filename: &str, errors: &[ParseError]) 
     for err in errors {
         let start = err.span.map(|s| s.start).unwrap_or(0);
         let end = err.span.map(|s| s.end).unwrap_or(start);
-        let mut r = Report::build(ReportKind::Error, filename, start)
+        // Use owned String as the source id to satisfy ariadne's type bounds
+        let src_id = filename.to_string();
+        let mut r = Report::build::<String>(ReportKind::Error, src_id.clone(), start)
             .with_message(err.msg.clone());
 
         if start != end {
@@ -16,6 +18,6 @@ pub fn report_parse_errors(source: &str, filename: &str, errors: &[ParseError]) 
         }
 
         let report = r.finish();
-        let _ = report.print((filename, Source::from(source)));
+        let _ = report.print((src_id, Source::from(source)));
     }
 }
