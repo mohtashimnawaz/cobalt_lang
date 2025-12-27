@@ -83,7 +83,7 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
             }
             Item::Let { name, ty, value, span } => {
                 // try type-check value; if ok, record its type; if there is an annotated type, check it
-                match type_of_expr(value, &sym) {
+                match type_of_expr(value, &sym, &mut warnings) {
                     Ok(inferred) => {
                         if let Some(declared) = ty {
                             if *declared != inferred {
@@ -116,7 +116,7 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
             for p in params {
                 sym.insert(p.name.clone(), p.ty.clone());
             }
-            match type_of_expr(body, &sym) {
+            match type_of_expr(body, &sym, &mut warnings) {
                 Ok(body_ty) => {
                     if body_ty != *ret_type {
                         errors.push(TypeError::new(
@@ -146,11 +146,11 @@ pub fn type_check_module_with_warnings(module: &Module) -> (Result<(), Vec<TypeE
     if errors.is_empty() { (Ok(()), warnings) } else { (Err(errors), warnings) }
 }
 
-fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> {
+fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>) -> Result<Type, Vec<TypeError>> {
     match expr {
         Expr::Literal(lit) => match lit {
-            crate::ast::Literal::Int(_) => Ok(Type::I32),
-            crate::ast::Literal::Bool(_) => Ok(Type::Bool),
+            Literal::Int(_) => Ok(Type::I32),
+            Literal::Bool(_) => Ok(Type::Bool),
         },
         Expr::Var(name) => {
             if let Some(ty) = env.lookup(name) {
@@ -161,8 +161,8 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
         }
         Expr::Binary(BinaryExpr { op, left, right, span }) => {
             let mut errors = Vec::new();
-            let lty = match type_of_expr(left, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
-            let rty = match type_of_expr(right, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
+            let lty = match type_of_expr(left, env, warnings) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
+            let rty = match type_of_expr(right, env, warnings) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
 
             let span_clone = *span;
 
@@ -173,10 +173,22 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
                 }
                 BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
                     // Eq/Ne should be polymorphic over i32 and bool (operands must match)
-                    match (&lty, &rty) {
-                        (Type::I32, Type::I32) => Ok(Type::Bool),
-                        (Type::Bool, Type::Bool) => Ok(Type::Bool),
-                        _ => Err(TypeError::new("comparison operands must have the same type (i32 or bool)", span_clone)),
+                    if lty == rty {
+                        Ok(Type::Bool)
+                    } else {
+                        // allow coercion of integer literal 0/1 to bool
+                        let left_is_bool_lit = matches!(**left, Expr::Literal(Literal::Bool(_)));
+                        let right_is_bool_lit = matches!(**right, Expr::Literal(Literal::Bool(_)));
+                        let left_is_int01 = matches!(**left, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
+                        let right_is_int01 = matches!(**right, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
+
+                        if (left_is_int01 && rty == Type::Bool) || (right_is_int01 && lty == Type::Bool) {
+                            // coerce int literal -> bool with warning
+                            if let Some(s) = span_clone { warnings.push(TypeWarning::new("coerced integer literal to bool in comparison", Some(s))); }
+                            Ok(Type::Bool)
+                        } else {
+                            Err(TypeError::new("comparison operands must have the same type (i32 or bool)", span_clone))
+                        }
                     }
                 }
                 BinaryOp::And | BinaryOp::Or => {
@@ -192,23 +204,31 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
         }
         Expr::If { cond, then_branch, else_branch, span } => {
             let mut errors = Vec::new();
-            match type_of_expr(cond, env) {
+            match type_of_expr(cond, env, warnings) {
                 Ok(Type::Bool) => {}
+                Ok(Type::I32) => {
+                    // allow literal 0/1 -> bool coercion with warning
+                    if matches!(**cond, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1) {
+                        if let Some(s) = *span { warnings.push(TypeWarning::new("coerced integer literal to bool in if condition", Some(s))); }
+                    } else {
+                        errors.push(TypeError::new(format!("if condition must be `bool`, found i32"), *span));
+                    }
+                }
                 Ok(t) => errors.push(TypeError::new(format!("if condition must be `bool`, found {:?}", t), *span)),
                 Err(mut es) => errors.append(&mut es),
             }
-            let then_t = match type_of_expr(then_branch, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
-            let else_t = match type_of_expr(else_branch, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
+            let then_t = match type_of_expr(then_branch, env, warnings) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
+            let else_t = match type_of_expr(else_branch, env, warnings) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
             if then_t != else_t { errors.push(TypeError::new("then and else branch types must match", *span)); }
             if errors.is_empty() { Ok(then_t) } else { Err(errors) }
         }
         Expr::Let { name, value, body, span: _ } => {
             let mut errors = Vec::new();
-            let vty = match type_of_expr(value, env) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
+            let vty = match type_of_expr(value, env, warnings) { Ok(t) => t, Err(mut es) => { errors.append(&mut es); Type::I32 } };
             // shadowing allowed; check body in new scope
             let mut env2 = env.clone();
             env2.insert(name.clone(), vty.clone());
-            match type_of_expr(body, &env2) {
+            match type_of_expr(body, &env2, warnings) {
                 Ok(bt) => if errors.is_empty() { Ok(bt) } else { Err(errors) },
                 Err(mut es) => { errors.append(&mut es); Err(errors) }
             }
@@ -223,7 +243,7 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable) -> Result<Type, Vec<TypeError>> 
                         return Err(errors);
                     }
                     for (i, (arg, expected)) in args.iter().zip(params.iter()).enumerate() {
-                        match type_of_expr(arg, env) {
+                        match type_of_expr(arg, env, warnings) {
                             Ok(t) => if &t != expected { errors.push(TypeError::new(format!("argument {} to `{}` expected {:?} but found {:?}", i, fn_name, expected, t), extract_span_from_expr(arg))); }
                             Err(mut es) => errors.append(&mut es),
                         }
@@ -278,8 +298,17 @@ mod tests {
     }
 
     #[test]
-    fn error_if_cond_not_bool() {
-        let src = "fn bad() -> i32 { if 1 then 2 else 3 }";
+    fn if_coercion_allows_literal() {
+        let src = "fn ok() -> i32 { if 1 then 2 else 3 }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("coerced integer literal to bool")));
+    }
+
+    #[test]
+    fn if_cond_var_still_errors() {
+        let src = "fn bad(x: i32) -> i32 { if x then 2 else 3 }";
         let module = parse_module(src).expect("parse module");
         let err = type_check_module(&module).unwrap_err();
         assert!(err.iter().any(|e| e.msg.contains("if condition must be `bool`")));
@@ -293,8 +322,17 @@ mod tests {
     }
 
     #[test]
-    fn eq_mismatch_error() {
-        let src = "fn bad() -> bool { 1 == true }";
+    fn eq_coercion_allows_int_bool_literal() {
+        let src = "fn ok() -> bool { 1 == true }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("coerced integer literal to bool")));
+    }
+
+    #[test]
+    fn eq_nonliteral_mismatch_errors() {
+        let src = "fn bad(x: i32) -> bool { x == true }";
         let module = parse_module(src).expect("parse module");
         let err = type_check_module(&module).unwrap_err();
         assert!(err.iter().any(|e| e.msg.contains("comparison operands must have the same type")));
