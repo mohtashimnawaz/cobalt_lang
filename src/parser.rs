@@ -268,10 +268,95 @@ impl Parser {
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         if let Some((tok_clone, _span)) = self.tokens.get(self.pos).cloned() {
             match tok_clone {
-                Token::Float(f) => { self.bump(); Ok(Expr::Literal(Literal::Float(f))) }
-                Token::Int(i) => { self.bump(); Ok(Expr::Literal(Literal::Int(i))) }
-                Token::True => { self.bump(); Ok(Expr::Literal(Literal::Bool(true))) }
-                Token::False => { self.bump(); Ok(Expr::Literal(Literal::Bool(false))) }
+                Token::Float(f) => {
+                    self.bump();
+                    let mut e = Expr::Literal(Literal::Float(f));
+                    // handle postfix casts
+                    loop {
+                        if let Some(Token::As) = self.peek() {
+                            self.bump();
+                            let ty = match self.bump() {
+                                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                                None => return Err(ParseError::new("unexpected EOF after `as`", None)),
+                            };
+                            e = Expr::Cast { expr: Box::new(e), ty, span: None };
+                            continue;
+                        }
+                        break;
+                    }
+                    Ok(e)
+                }
+                Token::Int(i) => {
+                    self.bump();
+                    let mut e = Expr::Literal(Literal::Int(i));
+                    loop {
+                        if let Some(Token::As) = self.peek() {
+                            self.bump();
+                            let ty = match self.bump() {
+                                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                                None => return Err(ParseError::new("unexpected EOF after `as`", None)),
+                            };
+                            e = Expr::Cast { expr: Box::new(e), ty, span: None };
+                            continue;
+                        }
+                        break;
+                    }
+                    Ok(e)
+                }
+                Token::True => {
+                    self.bump();
+                    let mut e = Expr::Literal(Literal::Bool(true));
+                    loop {
+                        if let Some(Token::As) = self.peek() {
+                            self.bump();
+                            let ty = match self.bump() {
+                                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                                None => return Err(ParseError::new("unexpected EOF after `as`", None)),
+                            };
+                            e = Expr::Cast { expr: Box::new(e), ty, span: None };
+                            continue;
+                        }
+                        break;
+                    }
+                    Ok(e)
+                }
+                Token::False => {
+                    self.bump();
+                    let mut e = Expr::Literal(Literal::Bool(false));
+                    loop {
+                        if let Some(Token::As) = self.peek() {
+                            self.bump();
+                            let ty = match self.bump() {
+                                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                                None => return Err(ParseError::new("unexpected EOF after `as`", None)),
+                            };
+                            e = Expr::Cast { expr: Box::new(e), ty, span: None };
+                            continue;
+                        }
+                        break;
+                    }
+                    Ok(e)
+                }
                 Token::Ident(name) => {
                     // Could be a variable or a call
                     // look at the next token after the identifier to detect a call
@@ -304,8 +389,30 @@ impl Parser {
                 }
                 Token::LParen => {
                     self.bump();
-                    let e = self.parse_expr_inner()?;
+                    let mut e = self.parse_expr_inner()?;
                     self.expect_token(Token::RParen)?;
+                    // handle postfix casts: expr as TYPE
+                    loop {
+                        if let Some(Token::As) = self.peek() {
+                            // consume 'as'
+                            let as_span = self.bump();
+                            // expect a type identifier
+                            let ty = match self.bump() {
+                                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                                None => return Err(ParseError::new("unexpected EOF after `as`", None)),
+                            };
+                            // build Cast node; span is the combined span from e to as_span (best effort)
+                            let span = Self::merge_spans(&e, &Expr::Literal(Literal::Int(0)));
+                            e = Expr::Cast { expr: Box::new(e), ty, span };
+                            continue;
+                        }
+                        break;
+                    }
                     Ok(e)
                 }
                 Token::If => {

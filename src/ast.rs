@@ -92,6 +92,13 @@ pub enum Expr {
         args: Vec<Expr>,
         span: Option<Span>,
     },
+
+    /// Explicit cast: `expr as Type`
+    Cast {
+        expr: Box<Expr>,
+        ty: Type,
+        span: Option<Span>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]

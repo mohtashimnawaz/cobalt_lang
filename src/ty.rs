@@ -66,6 +66,39 @@ impl TypeWarning {
 }
 
 /// Internal core that returns (errors, warnings)
+fn type_rank(ty: &Type) -> Option<u8> {
+    match ty {
+        Type::I32 => Some(0),
+        Type::I64 => Some(1),
+        Type::F32 => Some(2),
+        Type::F64 => Some(3),
+        _ => None,
+    }
+}
+
+fn type_name(ty: &Type) -> &'static str {
+    match ty {
+        Type::I32 => "i32",
+        Type::I64 => "i64",
+        Type::F32 => "f32",
+        Type::F64 => "f64",
+        Type::Bool => "bool",
+        _ => "unknown",
+    }
+}
+
+fn numeric_promotion(a: &Type, b: &Type, span: Option<Span>, warnings: &mut Vec<TypeWarning>) -> Result<Type, TypeError> {
+    if let (Some(ra), Some(rb)) = (type_rank(a), type_rank(b)) {
+        if ra == rb { return Ok(a.clone()); }
+        let higher = if ra > rb { a.clone() } else { b.clone() };
+        let lower = if ra > rb { b.clone() } else { a.clone() };
+        if let Some(s) = span { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(&higher)), Some(s))); }
+        Ok(higher)
+    } else {
+        Err(TypeError::new("types are not numeric for promotion", span))
+    }
+}
+
 fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
@@ -169,42 +202,34 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
 
             let result = match op {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                    // numeric promotions: i32 + f64 => f64 (coerce i32 -> f64 with warning)
-                    match (&lty, &rty) {
-                        (Type::I32, Type::I32) => Ok(Type::I32),
-                        (Type::F64, Type::F64) => Ok(Type::F64),
-                        (Type::I32, Type::F64) | (Type::F64, Type::I32) => {
-                            if let Some(s) = span_clone { warnings.push(TypeWarning::new("promoted i32 to f64 in numeric operation", Some(s))); }
-                            Ok(Type::F64)
-                        }
-                        _ => Err(TypeError::new("arithmetic operands must be numeric and compatible (i32 or f64)", span_clone))
+                    // numeric promotions across i32, i64, f32, f64
+                    match numeric_promotion(&lty, &rty, span_clone, warnings) {
+                        Ok(t) => Ok(t),
+                        Err(e) => Err(e),
                     }
                 }
                 BinaryOp::Eq | BinaryOp::Ne | BinaryOp::Lt | BinaryOp::Le | BinaryOp::Gt | BinaryOp::Ge => {
-                    // comparisons: i32/i32 -> bool, f64/f64 -> bool, mixed i32/f64 promote to f64 with warning
-                    if lty == rty {
+                        if lty == rty {
                         Ok(Type::Bool)
                     } else {
-                        match (&lty, &rty) {
-                            (Type::I32, Type::F64) | (Type::F64, Type::I32) => {
-                                if let Some(s) = span_clone { warnings.push(TypeWarning::new("promoted i32 to f64 in comparison", Some(s))); }
-                                Ok(Type::Bool)
+                        // try numeric promotion first
+                        if let (Some(_), Some(_)) = (type_rank(&lty), type_rank(&rty)) {
+                            match numeric_promotion(&lty, &rty, span_clone, warnings) {
+                                Ok(_t) => Ok(Type::Bool),
+                                Err(e) => Err(e),
                             }
-                            // allow coercion of integer literal 0/1 to bool and float literal 0.0/1.0 to bool
-                            _ => {
-                                let _left_is_bool_lit = matches!(**left, Expr::Literal(Literal::Bool(_)));
-                                let _right_is_bool_lit = matches!(**right, Expr::Literal(Literal::Bool(_)));
-                                let left_is_int01 = matches!(**left, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
-                                let right_is_int01 = matches!(**right, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
-                                let left_is_float01 = matches!(**left, Expr::Literal(Literal::Float(f)) if f == 0.0 || f == 1.0);
-                                let right_is_float01 = matches!(**right, Expr::Literal(Literal::Float(f)) if f == 0.0 || f == 1.0);
+                        } else {
+                            // allow coercion of integer literal 0/1 and float 0.0/1.0 to bool
+                            let left_is_int01 = matches!(**left, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
+                            let right_is_int01 = matches!(**right, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1);
+                            let left_is_float01 = matches!(**left, Expr::Literal(Literal::Float(f)) if f == 0.0 || f == 1.0);
+                            let right_is_float01 = matches!(**right, Expr::Literal(Literal::Float(f)) if f == 0.0 || f == 1.0);
 
-                                if (left_is_int01 && rty == Type::Bool) || (right_is_int01 && lty == Type::Bool) || (left_is_float01 && rty == Type::Bool) || (right_is_float01 && lty == Type::Bool) {
-                                    if let Some(s) = span_clone { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison", Some(s))); }
-                                    Ok(Type::Bool)
-                                } else {
-                                    Err(TypeError::new("comparison operands must have the same type (i32, f64 or bool)", span_clone))
-                                }
+                            if (left_is_int01 && rty == Type::Bool) || (right_is_int01 && lty == Type::Bool) || (left_is_float01 && rty == Type::Bool) || (right_is_float01 && lty == Type::Bool) {
+                                if let Some(s) = span_clone { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison; consider an explicit cast", Some(s))); }
+                                Ok(Type::Bool)
+                            } else {
+                                Err(TypeError::new("comparison operands must have the same type (i32, i64, f32, f64 or bool)", span_clone))
                             }
                         }
                     }
