@@ -279,6 +279,27 @@ mod llvm_codegen {
         Ok(cg.module.print_to_string().to_string())
     }
 
+    /// Compile to an object file using the host target
+    pub fn compile_module_to_object(module: &Module, name: &str, path: &std::path::Path) -> Result<()> {
+        use inkwell::targets::{Target, InitializationConfig, FileType, RelocMode, CodeModel};
+        let context = Context::create();
+        let mut cg = Codegen::new(&context, name);
+        cg.compile_module(module)?;
+
+        // Initialize targets
+        Target::initialize_all(&InitializationConfig::default());
+        let triple = inkwell::targets::TargetMachine::get_default_triple();
+        let target = Target::from_triple(&triple);
+        let cpu = "generic";
+        let features = "";
+        let tm = target.create_target_machine(&triple, cpu, features, inkwell::OptimizationLevel::Default, RelocMode::Default, CodeModel::Default)
+            .ok_or_else(|| anyhow!("failed to create target machine"))?;
+
+        tm.write_to_file(&cg.module, FileType::Object, path)
+            .with_context(|| format!("failed to write object file to {:?}", path))?;
+        Ok(())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -296,3 +317,6 @@ mod llvm_codegen {
 
 #[cfg(feature = "llvm")]
 pub use llvm_codegen::compile_module_to_ir;
+
+#[cfg(feature = "llvm")]
+pub use llvm_codegen::compile_module_to_object;

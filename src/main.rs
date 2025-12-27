@@ -1,7 +1,14 @@
 mod ast;
 mod parser;
 mod lexer;
+mod diagnostics;
+mod codegen;
+mod cli;
 
 fn main() {
-    println!("Hello, world!");
+    env_logger::init();
+    if let Err(e) = cli::run() {
+        eprintln!("error: {:#}", e);
+        std::process::exit(1);
+    }
 }
