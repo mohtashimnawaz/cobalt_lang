@@ -99,7 +99,7 @@ fn numeric_promotion(a: &Type, b: &Type, span: Option<Span>, warnings: &mut Vec<
         Ok(higher)
     } else {
         println!("[ty-debug] numeric_promotion failed: non-numeric types: {} and {}", type_name(a), type_name(b));
-        Err(TypeError::new("types are not numeric for promotion", span))
+        Err(TypeError::new(format!("arithmetic operands must be numeric (found {} and {})", type_name(a), type_name(b)), span))
     }
 }
 fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
@@ -330,7 +330,7 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                     }
                     Ok(ty.clone())
                 }
-                Err(mut es) => Err(es),
+                Err(es) => Err(es),
             }
         }
     }

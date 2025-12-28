@@ -416,7 +416,7 @@ impl Parser {
                     loop {
                         if let Some(Token::As) = self.peek() {
                             // capture span of 'as' token and consume it
-                            let as_span_opt = self.peek_span();
+                            let _as_span_opt = self.peek_span();
                             self.bump(); // consume 'as'
                             // expect a type identifier
                             match self.bump() {
