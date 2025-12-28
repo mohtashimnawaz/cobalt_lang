@@ -257,16 +257,20 @@ impl Parser {
         let mut expr = self.parse_primary()?;
         while let Some(Token::As) = self.peek() {
             self.bump();
-            let ty = match self.bump() {
-                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
-                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
-                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
-                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
-                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
-                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+            // capture type token and its span so we can attach a span to the Cast expression
+            let type_token = match self.bump() {
+                Some(t) => t,
                 None => return Err(ParseError::new("unexpected EOF in cast type", None)),
             };
-            expr = Expr::Cast { expr: Box::new(expr), ty, span: None };
+            let (ty, type_span) = match type_token {
+                (Token::Ident(s), span) if s == "i32" => (Type::I32, span),
+                (Token::Ident(s), span) if s == "i64" => (Type::I64, span),
+                (Token::Ident(s), span) if s == "f32" => (Type::F32, span),
+                (Token::Ident(s), span) if s == "f64" => (Type::F64, span),
+                (Token::Ident(s), span) if s == "bool" => (Type::Bool, span),
+                (tok, span) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+            };
+            expr = Expr::Cast { expr: Box::new(expr), ty, span: Some(type_span) };
         }
         Ok(expr)
     }
