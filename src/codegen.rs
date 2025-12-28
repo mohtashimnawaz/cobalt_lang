@@ -376,7 +376,7 @@ mod llvm_codegen {
                         Type::I32 => Ok(self.builder.build_float_to_signed_int(fv, self.i32_type(), "fptositmp").into()),
                         Type::I64 => Ok(self.builder.build_float_to_signed_int(fv, self.context.i64_type(), "fptositmp").into()),
                         Type::Bool => {
-                            let zero = self.context.f64_type().const_float(0.0);
+                            let zero = fv.get_type().const_float(0.0);
                             Ok(self.builder.build_float_compare(inkwell::FloatPredicate::ONE, fv, zero, "boolcast").into())
                         }
                         Type::Func { .. } => Err(anyhow!("cannot cast float to function type")),
@@ -471,6 +471,22 @@ mod llvm_codegen {
             // i64 -> f64 conversion should be present and then an fadd
             assert!(ir.contains("sitofp i64"));
             assert!(ir.contains("fadd"));
+        }
+
+        #[test]
+        fn compile_cast_float_to_bool() {
+            let m = Module { items: vec![Item::Function { name: "f2b".to_string(), params: vec![], ret_type: Type::Bool, body: Expr::Cast { expr: Box::new(Expr::Literal(Literal::Float(2.5))), ty: Type::Bool, span: None }, span: None }] };
+            let ir = compile_module_to_ir(&m, "test_cast_f2b").expect("codegen");
+            // Should contain a float compare (fcmp) for bool cast
+            assert!(ir.contains("fcmp") || ir.contains("fcmp one"));
+        }
+
+        #[test]
+        fn compile_cast_i32_to_bool() {
+            let m = Module { items: vec![Item::Function { name: "i2b".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I32 }], ret_type: Type::Bool, body: Expr::Cast { expr: Box::new(Expr::Var("x".to_string())), ty: Type::Bool, span: None }, span: None }] };
+            let ir = compile_module_to_ir(&m, "test_cast_i2b").expect("codegen");
+            // Should contain an integer compare (icmp ne)
+            assert!(ir.contains("icmp") || ir.contains("icmp ne"));
         }
     }
 }

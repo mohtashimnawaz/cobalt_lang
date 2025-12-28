@@ -87,18 +87,23 @@ fn type_name(ty: &Type) -> &'static str {
     }
 }
 
-fn numeric_promotion(a: &Type, b: &Type, span: Option<Span>, warnings: &mut Vec<TypeWarning>) -> Result<Type, TypeError> {
+fn numeric_promotion(a: &Type, b: &Type, left_span: Option<Span>, right_span: Option<Span>, warnings: &mut Vec<TypeWarning>) -> Result<Type, TypeError> {
     // Debug: print types being promoted
-    println!("[ty-debug] numeric_promotion: left={} right={} span={:?}", type_name(a), type_name(b), span);
+    println!("[ty-debug] numeric_promotion: left={} right={} left_span={:?} right_span={:?}", type_name(a), type_name(b), left_span, right_span);
     if let (Some(ra), Some(rb)) = (type_rank(a), type_rank(b)) {
         if ra == rb { return Ok(a.clone()); }
-        let higher = if ra > rb { a.clone() } else { b.clone() };
-        let lower = if ra > rb { b.clone() } else { a.clone() };
-        if let Some(s) = span { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(&higher)), Some(s))); }
+        let (higher, lower, lower_span) = if ra > rb {
+            (a.clone(), b.clone(), right_span)
+        } else {
+            (b.clone(), a.clone(), left_span)
+        };
+        if let Some(s) = lower_span { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(&higher)), Some(s))); }
         println!("[ty-debug] numeric_promotion result: promoted {} -> {}", type_name(&lower), type_name(&higher));
         Ok(higher)
     } else {
         println!("[ty-debug] numeric_promotion failed: non-numeric types: {} and {}", type_name(a), type_name(b));
+        // prefer to use left_span or right_span for error location
+        let span = left_span.or(right_span);
         Err(TypeError::new(format!("arithmetic operands must be numeric (found {} and {})", type_name(a), type_name(b)), span))
     }
 }
@@ -256,7 +261,9 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
             let result = match op {
                 BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
                     // numeric promotions across i32, i64, f32, f64
-                    match numeric_promotion(&lty, &rty, span_clone, warnings) {
+                    let left_span = extract_span_from_expr(left).or(span_clone);
+                    let right_span = extract_span_from_expr(right).or(span_clone);
+                    match numeric_promotion(&lty, &rty, left_span, right_span, warnings) {
                         Ok(t) => Ok(t),
                         Err(e) => Err(e),
                     }
@@ -267,7 +274,9 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                     } else {
                         // try numeric promotion first
                         if let (Some(_), Some(_)) = (type_rank(&lty), type_rank(&rty)) {
-                            match numeric_promotion(&lty, &rty, span_clone, warnings) {
+                            let left_span = extract_span_from_expr(left).or(span_clone);
+                            let right_span = extract_span_from_expr(right).or(span_clone);
+                            match numeric_promotion(&lty, &rty, left_span, right_span, warnings) {
                                 Ok(_t) => Ok(Type::Bool),
                                 Err(e) => Err(e),
                             }
@@ -279,10 +288,13 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                             let right_is_float01 = matches!(**right, Expr::Literal(Literal::Float(f)) if f == 0.0 || f == 1.0);
 
                             if (left_is_int01 && rty == Type::Bool) || (right_is_int01 && lty == Type::Bool) || (left_is_float01 && rty == Type::Bool) || (right_is_float01 && lty == Type::Bool) {
-                                if let Some(s) = span_clone { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison; consider an explicit cast", Some(s))); }
+                                // prefer the literal's span if available; fall back to parent span
+                                let s = if left_is_int01 || left_is_float01 { extract_span_from_expr(left) } else { extract_span_from_expr(right) };
+                                let s = s.or(span_clone);
+                                if let Some(s) = s { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison; consider an explicit cast", Some(s))); }
                                 Ok(Type::Bool)
                             } else {
-                                Err(TypeError::new("comparison operands must have the same type (i32, i64, f32, f64 or bool)", span_clone))
+                                Err(TypeError::new("comparison operands must have the same type (i32, i64, f32, f64 or bool)", extract_span_from_expr(left).or(extract_span_from_expr(right))))
                             }
                         }
                     }
@@ -305,9 +317,10 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                 Ok(Type::I32) => {
                     // allow literal 0/1 -> bool coercion with warning
                     if matches!(**cond, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1) {
-                        if let Some(s) = *span { warnings.push(TypeWarning::new("coerced integer literal to bool in if condition", Some(s))); }
+                        let s = extract_span_from_expr(cond).or(*span);
+                        if let Some(s) = s { warnings.push(TypeWarning::new("coerced integer literal to bool in if condition", Some(s))); }
                     } else {
-                        errors.push(TypeError::new(format!("if condition must be `bool`, found i32"), *span));
+                        errors.push(TypeError::new(format!("if condition must be `bool`, found i32"), extract_span_from_expr(cond).or(*span)));
                     }
                 }
                 Ok(t) => errors.push(TypeError::new(format!("if condition must be `bool`, found {:?}", t), *span)),
@@ -415,6 +428,33 @@ mod tests {
     }
 
     #[test]
+    fn arithmetic_promotion_warn_has_span() {
+        let src = "fn f() -> f64 { 1 + 2.5 }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("promoted i32 to f64") && w.span.is_some()));
+    }
+
+    #[test]
+    fn eq_coercion_allows_int_bool_literal() {
+        let src = "fn ok() -> bool { 1 == true }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("coerced numeric literal to bool")));
+    }
+
+    #[test]
+    fn eq_coercion_warn_has_span() {
+        let src = "fn ok() -> bool { 1 == true }";
+        let module = parse_module(src).expect("parse module");
+        let (res, warnings) = type_check_module_with_warnings(&module);
+        assert!(res.is_ok());
+        assert!(warnings.iter().any(|w| w.msg.contains("coerced numeric literal to bool") && w.span.is_some()));
+    }
+
+    #[test]
     fn error_incompatible_arith() {
         let src = "fn bad() -> i32 { true + 1 }";
         let module = parse_module(src).expect("parse module");
@@ -444,15 +484,6 @@ mod tests {
         let src = "fn b() -> bool { true == false }";
         let module = parse_module(src).expect("parse module");
         assert!(type_check_module(&module).is_ok());
-    }
-
-    #[test]
-    fn eq_coercion_allows_int_bool_literal() {
-        let src = "fn ok() -> bool { 1 == true }";
-        let module = parse_module(src).expect("parse module");
-        let (res, warnings) = type_check_module_with_warnings(&module);
-        assert!(res.is_ok());
-        assert!(warnings.iter().any(|w| w.msg.contains("coerced numeric literal to bool")));
     }
 
     #[test]
