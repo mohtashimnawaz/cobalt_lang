@@ -17,7 +17,7 @@ pub fn compile_module_to_ir(module: &Module, _name: &str) -> Result<String> {
     // Emit globals for top-level lets (only support integer and float/bool literals for now)
     for item in &module.items {
         if let Item::Let { name, ty, value, .. } = item {
-            match &**value {
+            match value {
                 Expr::Literal(Literal::Int(i)) => {
                     match ty {
                         Some(Type::I64) => out.push_str(&format!("long long {} = {}LL;\n", name, i)),

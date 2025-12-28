@@ -36,7 +36,14 @@ fn run_build(input: PathBuf, output: Option<PathBuf>) -> Result<()> {
     match crate::parser::parse_module(&src) {
         Ok(module) => {
             // Run semantic checks (type checker) and emit diagnostics and warnings
-            let (res, warnings) = crate::ty::type_check_module_with_warnings(&module);
+            // For low-memory or quick demos you can skip checks by setting COBALT_SKIP_CHECK=1
+            let skip_check = std::env::var("COBALT_SKIP_CHECK").is_ok();
+            let (res, warnings) = if skip_check {
+                println!("Skipping type checks because $COBALT_SKIP_CHECK is set");
+                (Ok(()), Vec::new())
+            } else {
+                crate::ty::type_check_module_with_warnings(&module)
+            };
             if !warnings.is_empty() {
                 crate::diagnostics::report_type_warnings(&src, input.to_str().unwrap_or("<input>"), &warnings);
             }

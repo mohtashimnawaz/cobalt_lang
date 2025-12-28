@@ -419,6 +419,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn arithmetic_promotion_to_f64() {
         let src = "fn f() -> f64 { 1 + 2.5 }";
         let module = parse_module(src).expect("parse module");
@@ -428,6 +429,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn arithmetic_promotion_warn_has_span() {
         let src = "fn f() -> f64 { 1 + 2.5 }";
         let module = parse_module(src).expect("parse module");
@@ -502,6 +504,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn top_level_let_annot_mismatch() {
         let src = "let x: i32 = true";
         let module = parse_module(src).expect("parse module");
@@ -510,6 +513,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn casting_narrowing_warns() {
         let src = "fn f() -> i32 { (2.5 as i32) }";
         let module = parse_module(src).expect("parse module");

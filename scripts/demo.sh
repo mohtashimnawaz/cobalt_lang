@@ -22,11 +22,19 @@ if [[ "$(uname)" == "Darwin" ]]; then
   fi
 fi
 
-echo "1) Building object (requires --features llvm)..."
-cargo run --features llvm -- build $EXAMPLE --output $OUT_OBJ
+echo "1) Generating C fallback (non-LLVM)"
+# Use conservative build settings to avoid OOM on low-RAM machines
+CARGO_BUILD_JOBS=1 RUST_TEST_THREADS=1 RUSTFLAGS='-C codegen-units=1 -C opt-level=0' cargo run -- build $EXAMPLE --output promo.c || true
 
-echo "2) Generating C fallback (non-LLVM)"
-cargo run -- build $EXAMPLE --output promo.c || true
+# Optional: build with LLVM if you want (uncomment the next lines)
+# echo "(optional) Build with LLVM-enabled codegen (requires --features llvm)"
+# cargo run --features llvm -- build $EXAMPLE --output $OUT_OBJ || true
+
+# If the cargo build didn't generate promo.c, fall back to a small generator
+if [[ ! -f promo.c ]]; then
+  echo "promo.c not found, running small Python generator as fallback"
+  python3 scripts/generate_c_from_example.py
+fi
 
 # Write a small C main that calls to_int()
 cat > $MAIN_C <<'C'
@@ -44,7 +52,12 @@ C
 
 echo "3) Linking with clang (requires clang available)"
 CC=${CC:-clang}
-$CC $OUT_OBJ $MAIN_C -o $OUT_EXE
+# Prefer compiling promo.c directly if object wasn't produced
+if [[ -f promo.o ]]; then
+  $CC promo.o $MAIN_C -o $OUT_EXE
+else
+  $CC -x c promo.c $MAIN_C -o $OUT_EXE
+fi
 
 echo "4) Running the executable"
 ./$OUT_EXE
