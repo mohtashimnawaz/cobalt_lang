@@ -7,6 +7,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Abort long-running or runaway CI runs after this many minutes
+    timeout-minutes: 20
+    # Keep only one workflow run per branch in progress to avoid spurious duplicates
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -63,3 +69,12 @@ jobs:
         with:
           name: heavy-test-logs
           path: heavy-test.log
+
+      - name: Upload all test logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-test-logs
+          path: |
+            test.log
+            heavy-test.log
