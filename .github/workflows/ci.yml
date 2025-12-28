@@ -93,19 +93,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install system deps (clang, llvm) on Linux
+      - name: Install system deps (clang-16, llvm-16) on Linux
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang llvm lld libclang-dev
+          # Use LLVM/Clang-16 packages which are compatible with inkwell/llvm-sys
+          sudo apt-get install -y clang-16 lld-16 llvm-16 libclang-16-dev pkg-config
+          echo "CC=clang-16" >> $GITHUB_ENV
+          echo "CXX=clang++-16" >> $GITHUB_ENV
+          echo "LLVM_CONFIG_PATH=/usr/bin/llvm-config-16" >> $GITHUB_ENV
 
-      - name: Install system deps (clang, llvm) on macOS
+      - name: Install system deps (clang, llvm@16) on macOS
         if: matrix.os == 'macos-latest'
         run: |
           brew update
-          brew install llvm
-          # make Homebrew LLVM available on PATH for subsequent steps
-          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> $GITHUB_ENV
+          brew install llvm@16
+          # make Homebrew LLVM@16 available on PATH for subsequent steps
+          echo "PATH=$(brew --prefix llvm@16)/bin:$PATH" >> $GITHUB_ENV
+          echo "LLVM_CONFIG_PATH=$(brew --prefix llvm@16)/bin/llvm-config" >> $GITHUB_ENV
+          echo "LIBCLANG_PATH=$(brew --prefix llvm@16)/lib" >> $GITHUB_ENV
+          echo "CC=$(brew --prefix llvm@16)/bin/clang" >> $GITHUB_ENV
+          echo "CXX=$(brew --prefix llvm@16)/bin/clang++" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
@@ -132,6 +140,11 @@ jobs:
         shell: bash -l {0}
         run: |
           set -o pipefail
+          echo "Using llvm-config: ${LLVM_CONFIG_PATH:-$(which llvm-config || true)}"
+          echo "Using CC: ${CC:-$(which clang || true)}"
+          # Display versions for debugging
+          ${LLVM_CONFIG_PATH:+"$LLVM_CONFIG_PATH" --version} || llvm-config --version || true
+          ${CC:+"$CC" --version} || clang --version || true
           cargo test --features llvm -- --test-threads=1 --nocapture 2>&1 | tee llvm-test.log
           exit ${PIPESTATUS[0]}
 
