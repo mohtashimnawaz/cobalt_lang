@@ -196,9 +196,7 @@ impl Parser {
                 };
                 Ok(Item::Let { name, ty, value, span })
             }
-            }
             Some(tok) => Err(ParseError::new(format!("unexpected token at top-level: {:?}", tok), self.peek_span())),
-            None => Err(ParseError::new("unexpected EOF", None)),
             None => Err(ParseError::new("unexpected EOF", None)),
         }
     }
@@ -211,21 +209,7 @@ impl Parser {
         }
     }
 
-    #[test]
-    fn parse_let_and_fn_with_i64_f32() {
-        let src = "let x: i64 = 1 fn f() -> f32 { x + 1.5 }";
-        let module = parse_module(src).expect("parse module");
-        // should produce two items: a let and a function
-        assert_eq!(module.items.len(), 2);
-        match &module.items[0] {
-            Item::Let { name, ty: Some(t), .. } => { assert_eq!(name, "x"); assert!(matches!(t, Type::I64)); }
-            _ => panic!("expected top-level let with i64")
-        }
-        match &module.items[1] {
-            Item::Function { name, params, ret_type, .. } => { assert_eq!(name, "f"); assert!(matches!(ret_type, Type::F32)); }
-            _ => panic!("expected function f")
-        }
-    }
+
 
     // Inner parser functions return single `ParseError` values and are composed above
     fn parse_expr_inner(&mut self) -> Result<Expr, ParseError> {
@@ -543,6 +527,22 @@ mod tests_parser_additional {
                 }
             }
             _ => panic!("unexpected items"),
+        }
+    }
+
+    #[test]
+    fn parse_let_and_fn_with_i64_f32() {
+        let src = "let x: i64 = 1 fn f() -> f32 { x + 1.5 }";
+        let module = parse_module(src).expect("parse module");
+        // should produce two items: a let and a function
+        assert_eq!(module.items.len(), 2);
+        match &module.items[0] {
+            Item::Let { name, ty: Some(t), .. } => { assert_eq!(name, "x"); assert!(matches!(t, Type::I64)); }
+            _ => panic!("expected top-level let with i64")
+        }
+        match &module.items[1] {
+            Item::Function { name, params: _, ret_type, .. } => { assert_eq!(name, "f"); assert!(matches!(ret_type, Type::F32)); }
+            _ => panic!("expected function f")
         }
     }
 }
