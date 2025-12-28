@@ -112,7 +112,7 @@ pub fn tokenize(src: &str) -> Vec<SpannedToken> {
                     Token::Int(_) | Token::Float(_) | Token::Ident(_) | Token::Let | Token::Fn | Token::If | Token::Then | Token::Else
                     | Token::In | Token::Plus | Token::Minus | Token::Star | Token::Slash | Token::EqEq | Token::Ne | Token::Le | Token::Ge
                     | Token::Lt | Token::Gt | Token::And | Token::Or | Token::Assign | Token::Semi | Token::Comma | Token::LParen | Token::RParen
-                    | Token::LBrace | Token::RBrace | Token::Arrow | Token::Colon | Token::True | Token::False => {
+                    | Token::LBrace | Token::RBrace | Token::Arrow | Token::Colon | Token::True | Token::False | Token::As => {
                         out.push((tok, Span { start: span.start, end: span.end }));
                     }
                     _ => {
@@ -167,5 +167,14 @@ mod tests {
             Token::Else,
             Token::Ident("z".to_string()),
         ]);
+    }
+
+    #[test]
+    fn dump_tokens_for_cast() {
+        let src = "fn f() -> i32 { (2.5 as i32) }";
+        let toks = tokenize(src);
+        // ensure `As` token is produced between the float and the type ident
+        let kinds: Vec<_> = toks.iter().map(|(t, _s)| t.clone()).collect();
+        assert!(kinds.contains(&Token::As), "expected Token::As to appear in token sequence: {:?}", kinds);
     }
 }
