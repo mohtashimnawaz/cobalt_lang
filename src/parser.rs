@@ -123,6 +123,9 @@ impl Parser {
                         self.expect_token(Token::Colon)?;
                         let ty = match self.bump() {
                             Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                            Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                            Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                            Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
                             Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
                             Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in param type: {:?}", tok), Some(span))),
                             None => return Err(ParseError::new("unexpected EOF in parameter list", None)),
@@ -139,6 +142,9 @@ impl Parser {
                     self.bump();
                     match self.bump() {
                         Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                        Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                        Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                        Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
                         Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
                         Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in return type: {:?}", tok), Some(span))),
                         None => return Err(ParseError::new("unexpected EOF after ->", None)),
@@ -160,7 +166,13 @@ impl Parser {
                 if let Some(Token::Semi) = self.peek() { self.bump(); }
                 Ok(Item::Let { name, ty: None, value, span: None })
             }
-            Some(tok) => Err(ParseError::new(format!("unexpected token at top-level: {:?}", tok), self.peek_span())),
+            Some(tok) => {
+                // Consuming the offending token avoids infinite loops where `parse_item` returns
+                // an error without advancing `pos`, causing `parse_module` to repeatedly
+                // collect the same error and never make progress.
+                let (tok, span) = self.bump().unwrap();
+                Err(ParseError::new(format!("unexpected token at top-level: {:?}", tok), Some(span)))
+            },
             None => Err(ParseError::new("unexpected EOF", None)),
         }
     }
@@ -228,12 +240,30 @@ impl Parser {
         Ok(left)
     }
 
+    fn parse_cast(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_primary()?;
+        while let Some(Token::As) = self.peek() {
+            self.bump();
+            let ty = match self.bump() {
+                Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
+                Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in cast type: {:?}", tok), Some(span))),
+                None => return Err(ParseError::new("unexpected EOF in cast type", None)),
+            };
+            expr = Expr::Cast { expr: Box::new(expr), ty, span: None };
+        }
+        Ok(expr)
+    }
+
     fn parse_product(&mut self) -> Result<Expr, ParseError> {
-        let mut left = self.parse_primary()?;
+        let mut left = self.parse_cast()?;
         loop {
             match self.peek() {
-                Some(Token::Star) => { self.bump(); let right = self.parse_primary()?; let span = Self::merge_spans(&left, &right); left = Expr::Binary(BinaryExpr{ op: BinaryOp::Mul, left: Box::new(left), right: Box::new(right), span: Some(span) }); }
-                Some(Token::Slash) => { self.bump(); let right = self.parse_primary()?; let span = Self::merge_spans(&left, &right); left = Expr::Binary(BinaryExpr{ op: BinaryOp::Div, left: Box::new(left), right: Box::new(right), span: Some(span) }); }
+                Some(Token::Star) => { self.bump(); let right = self.parse_cast()?; let span = Self::merge_spans(&left, &right); left = Expr::Binary(BinaryExpr{ op: BinaryOp::Mul, left: Box::new(left), right: Box::new(right), span: Some(span) }); }
+                Some(Token::Slash) => { self.bump(); let right = self.parse_cast()?; let span = Self::merge_spans(&left, &right); left = Expr::Binary(BinaryExpr{ op: BinaryOp::Div, left: Box::new(left), right: Box::new(right), span: Some(span) }); }
                 _ => break,
             }
         }
