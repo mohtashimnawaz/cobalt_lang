@@ -160,11 +160,24 @@ impl Parser {
             Some(Token::Let) => {
                 self.bump();
                 let name = self.expect_ident()?;
+                // optional type annotation: `let name : type = expr` or `let name = expr`
+                let ty = if let Some(Token::Colon) = self.peek() {
+                    self.bump();
+                    match self.bump() {
+                        Some((Token::Ident(s), _)) if s == "i32" => Some(Type::I32),
+                        Some((Token::Ident(s), _)) if s == "i64" => Some(Type::I64),
+                        Some((Token::Ident(s), _)) if s == "f32" => Some(Type::F32),
+                        Some((Token::Ident(s), _)) if s == "f64" => Some(Type::F64),
+                        Some((Token::Ident(s), _)) if s == "bool" => Some(Type::Bool),
+                        Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in let annotation: {:?}", tok), Some(span))),
+                        None => return Err(ParseError::new("unexpected EOF in let annotation", None)),
+                    }
+                } else { None };
                 self.expect_token(Token::Assign)?;
                 let value = self.parse_expr_inner()?;
                 // allow optional semicolon
                 if let Some(Token::Semi) = self.peek() { self.bump(); }
-                Ok(Item::Let { name, ty: None, value, span: None })
+                Ok(Item::Let { name, ty, value, span: None })
             }
             Some(tok) => {
                 // Consuming the offending token avoids infinite loops where `parse_item` returns
@@ -275,6 +288,10 @@ impl Parser {
                 Token::Int(i) => {
                     self.bump();
                     Ok(Expr::Literal(Literal::Int(i)))
+                }
+                Token::Float(f) => {
+                    self.bump();
+                    Ok(Expr::Literal(Literal::Float(f)))
                 }
                 Token::True => { self.bump(); Ok(Expr::Literal(Literal::Bool(true))) }
                 Token::False => { self.bump(); Ok(Expr::Literal(Literal::Bool(false))) }
