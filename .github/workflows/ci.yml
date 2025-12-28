@@ -78,3 +78,71 @@ jobs:
           path: |
             test.log
             heavy-test.log
+
+  llvm:
+    # run after the main test job to validate llvm-enabled codegen across OS/toolchains
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        toolchain: [stable, nightly]
+    timeout-minutes: 60
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system deps (clang, llvm) on Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld libclang-dev
+
+      - name: Install system deps (clang, llvm) on macOS
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew update
+          brew install llvm
+
+      - name: Install Rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.toolchain }}
+          override: true
+
+      - name: Cache cargo registry and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ matrix.os }}-cargo-llvm-${{ matrix.toolchain }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ matrix.os }}-cargo-llvm-
+
+      - name: LLVM-enabled tests (conservative settings)
+        env:
+          CARGO_BUILD_JOBS: 1
+          RUST_TEST_THREADS: 1
+          RUSTFLAGS: -C codegen-units=1 -C opt-level=0
+        shell: bash -l {0}
+        run: |
+          set -o pipefail
+          cargo test --features llvm -- --test-threads=1 --nocapture 2>&1 | tee llvm-test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload llvm test logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-test-logs
+          path: llvm-test.log
+
+      - name: Upload llvm test logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-test-logs
+          path: llvm-test.log

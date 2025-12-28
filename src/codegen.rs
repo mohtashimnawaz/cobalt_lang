@@ -455,6 +455,23 @@ mod llvm_codegen {
             // Should contain a float-to-int conversion instruction (fptosi)
             assert!(ir.contains("fptosi"));
         }
+
+        #[test]
+        fn compile_cast_i64_to_f32() {
+            let m = Module { items: vec![Item::Function { name: "i64_to_f32".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I64 }], ret_type: Type::F32, body: Expr::Cast { expr: Box::new(Expr::Var("x".to_string())), ty: Type::F32, span: None }, span: None }] };
+            let ir = compile_module_to_ir(&m, "test_cast_i64_f32").expect("codegen");
+            // int64 -> float32 conversion should contain sitofp i64
+            assert!(ir.contains("sitofp i64"));
+        }
+
+        #[test]
+        fn compile_add_i64_and_f64() {
+            let m = Module { items: vec![Item::Function { name: "add_i64_f64".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I64 }], ret_type: Type::F64, body: Expr::Binary(BinaryExpr { op: BinaryOp::Add, left: Box::new(Expr::Var("x".to_string())), right: Box::new(Expr::Literal(Literal::Float(1.5))), span: None }), span: None }] };
+            let ir = compile_module_to_ir(&m, "test_add_i64_f64").expect("codegen");
+            // i64 -> f64 conversion should be present and then an fadd
+            assert!(ir.contains("sitofp i64"));
+            assert!(ir.contains("fadd"));
+        }
     }
 }
 
