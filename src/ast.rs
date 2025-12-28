@@ -22,6 +22,8 @@ pub struct Span {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Type {
     I32,
+    I64,
+    F32,
     F64,
     Bool,
     /// A function type: (param types...) -> return type

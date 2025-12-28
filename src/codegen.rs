@@ -161,8 +161,9 @@ mod llvm_codegen {
 
         fn compile_expr(&mut self, expr: &Expr) -> Result<BasicValueEnum<'ctx>> {
             match expr {
-                Expr::Literal(Literal::Int(i)) => Ok(self.i32_type().const_int(*i as u64, true).into()),
+                    Expr::Literal(Literal::Int(i)) => Ok(self.i32_type().const_int(*i as u64, true).into()),
                 Expr::Literal(Literal::Bool(b)) => Ok(self.bool_type().const_int(if *b {1} else {0}, false).into()),
+                Expr::Literal(Literal::Float(f)) => Ok(self.context.f64_type().const_float(*f).into()),
                 Expr::Var(name) => {
                     if let Some(ptr) = self.get_var(name) {
                         Ok(self.builder.build_load(ptr, &format!("load_{}", name)))
@@ -178,19 +179,41 @@ mod llvm_codegen {
                 Expr::Binary(BinaryExpr { op, left, right, .. }) => {
                     let l = self.compile_expr(left)?;
                     let r = self.compile_expr(right)?;
-                    match op {
-                        BinaryOp::Add => Ok(self.builder.build_int_add(l.into_int_value(), r.into_int_value(), "addtmp").into()),
-                        BinaryOp::Sub => Ok(self.builder.build_int_sub(l.into_int_value(), r.into_int_value(), "subtmp").into()),
-                        BinaryOp::Mul => Ok(self.builder.build_int_mul(l.into_int_value(), r.into_int_value(), "multmp").into()),
-                        BinaryOp::Div => Ok(self.builder.build_int_signed_div(l.into_int_value(), r.into_int_value(), "divtmp").into()),
-                        BinaryOp::Eq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::EQ, l.into_int_value(), r.into_int_value(), "eqtmp").into()),
-                        BinaryOp::Ne => Ok(self.builder.build_int_compare(inkwell::IntPredicate::NE, l.into_int_value(), r.into_int_value(), "netmp").into()),
-                        BinaryOp::Lt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLT, l.into_int_value(), r.into_int_value(), "lttmp").into()),
-                        BinaryOp::Le => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLE, l.into_int_value(), r.into_int_value(), "letmp").into()),
-                        BinaryOp::Gt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGT, l.into_int_value(), r.into_int_value(), "gttmp").into()),
-                        BinaryOp::Ge => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGE, l.into_int_value(), r.into_int_value(), "getmp").into()),
-                        BinaryOp::And => Ok(self.builder.build_and(l.into_int_value(), r.into_int_value(), "andtmp").into()),
-                        BinaryOp::Or => Ok(self.builder.build_or(l.into_int_value(), r.into_int_value(), "ortmp").into()),
+                    // If both operands are floats, use float ops; otherwise assume integers
+                    if l.is_float_value() && r.is_float_value() {
+                        let lf = l.into_float_value();
+                        let rf = r.into_float_value();
+                        match op {
+                            BinaryOp::Add => Ok(self.builder.build_float_add(lf, rf, "faddtmp").into()),
+                            BinaryOp::Sub => Ok(self.builder.build_float_sub(lf, rf, "fsubtmp").into()),
+                            BinaryOp::Mul => Ok(self.builder.build_float_mul(lf, rf, "fmultmp").into()),
+                            BinaryOp::Div => Ok(self.builder.build_float_div(lf, rf, "fdivtmp").into()),
+                            BinaryOp::Eq => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, lf, rf, "feqtmp").into()),
+                            BinaryOp::Ne => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::ONE, lf, rf, "fnetmp").into()),
+                            BinaryOp::Lt => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OLT, lf, rf, "flttmp").into()),
+                            BinaryOp::Le => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OLE, lf, rf, "fletmp").into()),
+                            BinaryOp::Gt => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGT, lf, rf, "fgttmp").into()),
+                            BinaryOp::Ge => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGE, lf, rf, "fgetmp").into()),
+                            BinaryOp::And => Ok(self.builder.build_and(l.into_int_value(), r.into_int_value(), "andtmp").into()),
+                            BinaryOp::Or => Ok(self.builder.build_or(l.into_int_value(), r.into_int_value(), "ortmp").into()),
+                        }
+                    } else {
+                        let li = l.into_int_value();
+                        let ri = r.into_int_value();
+                        match op {
+                            BinaryOp::Add => Ok(self.builder.build_int_add(li, ri, "addtmp").into()),
+                            BinaryOp::Sub => Ok(self.builder.build_int_sub(li, ri, "subtmp").into()),
+                            BinaryOp::Mul => Ok(self.builder.build_int_mul(li, ri, "multmp").into()),
+                            BinaryOp::Div => Ok(self.builder.build_int_signed_div(li, ri, "divtmp").into()),
+                            BinaryOp::Eq => Ok(self.builder.build_int_compare(inkwell::IntPredicate::EQ, li, ri, "eqtmp").into()),
+                            BinaryOp::Ne => Ok(self.builder.build_int_compare(inkwell::IntPredicate::NE, li, ri, "netmp").into()),
+                            BinaryOp::Lt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLT, li, ri, "lttmp").into()),
+                            BinaryOp::Le => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SLE, li, ri, "letmp").into()),
+                            BinaryOp::Gt => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGT, li, ri, "gttmp").into()),
+                            BinaryOp::Ge => Ok(self.builder.build_int_compare(inkwell::IntPredicate::SGE, li, ri, "getmp").into()),
+                            BinaryOp::And => Ok(self.builder.build_and(li, ri, "andtmp").into()),
+                            BinaryOp::Or => Ok(self.builder.build_or(li, ri, "ortmp").into()),
+                        }
                     }
                 }
                 Expr::If { cond, then_branch, else_branch, .. } => {
