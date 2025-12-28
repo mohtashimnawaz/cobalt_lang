@@ -88,18 +88,22 @@ fn type_name(ty: &Type) -> &'static str {
 }
 
 fn numeric_promotion(a: &Type, b: &Type, span: Option<Span>, warnings: &mut Vec<TypeWarning>) -> Result<Type, TypeError> {
+    // Debug: print types being promoted
+    println!("[ty-debug] numeric_promotion: left={} right={} span={:?}", type_name(a), type_name(b), span);
     if let (Some(ra), Some(rb)) = (type_rank(a), type_rank(b)) {
         if ra == rb { return Ok(a.clone()); }
         let higher = if ra > rb { a.clone() } else { b.clone() };
         let lower = if ra > rb { b.clone() } else { a.clone() };
         if let Some(s) = span { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(&higher)), Some(s))); }
+        println!("[ty-debug] numeric_promotion result: promoted {} -> {}", type_name(&lower), type_name(&higher));
         Ok(higher)
     } else {
+        println!("[ty-debug] numeric_promotion failed: non-numeric types: {} and {}", type_name(a), type_name(b));
         Err(TypeError::new("types are not numeric for promotion", span))
     }
 }
-
 fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
+    println!("[ty-debug] type_check_core start, items={}", module.items.len());
     let mut errors = Vec::new();
     let mut warnings = Vec::new();
     let mut sym = SymbolTable::new();
@@ -108,6 +112,7 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
     for item in &module.items {
         match item {
             Item::Function { name, params, ret_type, .. } => {
+                println!("[ty-debug] first-pass function: {}", name);
                 let param_types: Vec<Type> = params.iter().map(|p| p.ty.clone()).collect();
                 let fty = Type::Func { params: param_types, ret: Box::new(ret_type.clone()) };
                 if sym.insert(name.clone(), fty).is_some() {
@@ -115,6 +120,7 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
                 }
             }
             Item::Let { name, ty, value, span } => {
+                println!("[ty-debug] first-pass let: {} (annot={:?})", name, ty);
                 // try type-check value; if ok, record its type; if there is an annotated type, check it
                 match type_of_expr(value, &sym, &mut warnings) {
                     Ok(inferred) => {
@@ -145,6 +151,7 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
     // Second pass: type-check function bodies (with params in scope)
     for item in &module.items {
         if let Item::Function { name, params, ret_type, body, span } = item {
+            println!("[ty-debug] checking function body: {}", name);
             sym.push();
             for p in params {
                 sym.insert(p.name.clone(), p.ty.clone());
