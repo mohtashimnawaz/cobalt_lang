@@ -182,10 +182,50 @@ mod llvm_codegen {
                 Expr::Binary(BinaryExpr { op, left, right, .. }) => {
                     let l = self.compile_expr(left)?;
                     let r = self.compile_expr(right)?;
-                    // If both operands are floats, use float ops; otherwise assume integers
-                    if l.is_float_value() && r.is_float_value() {
-                        let lf = l.into_float_value();
-                        let rf = r.into_float_value();
+                    // Handle float-int mixed cases: convert ints to floats when either operand is float.
+                    if l.is_float_value() || r.is_float_value() {
+                        // Determine target float type (f64 if either is f64)
+                        let target_is_f64 = (l.is_float_value() && l.into_float_value().get_type().get_bit_width() == 64) || (r.is_float_value() && r.into_float_value().get_type().get_bit_width() == 64);
+                        let (lf, rf) = {
+                            // convert left to float if needed
+                            let lf = if l.is_float_value() {
+                                let fv = l.into_float_value();
+                                if target_is_f64 && fv.get_type().get_bit_width() == 32 {
+                                    self.builder.build_float_ext(fv, self.context.f64_type(), "fexttmp")
+                                } else if !target_is_f64 && fv.get_type().get_bit_width() == 64 {
+                                    self.builder.build_float_trunc(fv, self.context.f32_type(), "ftrunctmp")
+                                } else {
+                                    fv
+                                }
+                            } else {
+                                // int -> float
+                                let iv = l.into_int_value();
+                                if target_is_f64 {
+                                    self.builder.build_signed_int_to_float(iv, self.context.f64_type(), "sitofptmp")
+                                } else {
+                                    self.builder.build_signed_int_to_float(iv, self.context.f32_type(), "sitofptmp")
+                                }
+                            };
+                            // convert right to float if needed
+                            let rf = if r.is_float_value() {
+                                let fv = r.into_float_value();
+                                if target_is_f64 && fv.get_type().get_bit_width() == 32 {
+                                    self.builder.build_float_ext(fv, self.context.f64_type(), "fexttmp")
+                                } else if !target_is_f64 && fv.get_type().get_bit_width() == 64 {
+                                    self.builder.build_float_trunc(fv, self.context.f32_type(), "ftrunctmp")
+                                } else {
+                                    fv
+                                }
+                            } else {
+                                let iv = r.into_int_value();
+                                if target_is_f64 {
+                                    self.builder.build_signed_int_to_float(iv, self.context.f64_type(), "sitofptmp")
+                                } else {
+                                    self.builder.build_signed_int_to_float(iv, self.context.f32_type(), "sitofptmp")
+                                }
+                            };
+                            (lf, rf)
+                        };
                         match op {
                             BinaryOp::Add => Ok(self.builder.build_float_add(lf, rf, "faddtmp").into()),
                             BinaryOp::Sub => Ok(self.builder.build_float_sub(lf, rf, "fsubtmp").into()),
@@ -197,8 +237,7 @@ mod llvm_codegen {
                             BinaryOp::Le => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OLE, lf, rf, "fletmp").into()),
                             BinaryOp::Gt => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGT, lf, rf, "fgttmp").into()),
                             BinaryOp::Ge => Ok(self.builder.build_float_compare(inkwell::FloatPredicate::OGE, lf, rf, "fgetmp").into()),
-                            BinaryOp::And => Ok(self.builder.build_and(l.into_int_value(), r.into_int_value(), "andtmp").into()),
-                            BinaryOp::Or => Ok(self.builder.build_or(l.into_int_value(), r.into_int_value(), "ortmp").into()),
+                            BinaryOp::And | BinaryOp::Or => Err(anyhow!("logical operators not valid for floats")),
                         }
                     } else {
                         let li = l.into_int_value();
@@ -391,12 +430,30 @@ mod llvm_codegen {
             assert!(ir.contains("add i32"));
         }
 
+        #[test]
         fn compile_cast_int_to_float() {
             let m = Module { items: vec![Item::Function { name: "to_double".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I32 }], ret_type: Type::F64, body: Expr::Cast { expr: Box::new(Expr::Var("x".to_string())), ty: Type::F64, span: None }, span: None }] };
             let ir = compile_module_to_ir(&m, "test_cast").expect("codegen");
             assert!(ir.contains("define double @to_double(i32 %"));
             // Ensure an int-to-float conversion instruction (sitofp) appears
             assert!(ir.contains("sitofp i32"));
+        }
+
+        #[test]
+        fn compile_add_int_and_float() {
+            let m = Module { items: vec![Item::Function { name: "to_double".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I32 }], ret_type: Type::F64, body: Expr::Binary(BinaryExpr { op: BinaryOp::Add, left: Box::new(Expr::Var("x".to_string())), right: Box::new(Expr::Literal(Literal::Float(1.5))), span: None }), span: None }] };
+            let ir = compile_module_to_ir(&m, "test_add").expect("codegen");
+            // int -> float conversion should be present and then an fadd
+            assert!(ir.contains("sitofp i32"));
+            assert!(ir.contains("fadd"));
+        }
+
+        #[test]
+        fn compile_cast_float_to_int() {
+            let m = Module { items: vec![Item::Function { name: "to_int".to_string(), params: vec![], ret_type: Type::I32, body: Expr::Cast { expr: Box::new(Expr::Literal(Literal::Float(2.5))), ty: Type::I32, span: None }, span: None }] };
+            let ir = compile_module_to_ir(&m, "test_cast_f2i").expect("codegen");
+            // Should contain a float-to-int conversion instruction (fptosi)
+            assert!(ir.contains("fptosi"));
         }
     }
 }
