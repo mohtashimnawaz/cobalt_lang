@@ -97,7 +97,7 @@ fn numeric_promotion(a: &Type, b: &Type, left_span: Option<Span>, right_span: Op
         } else {
             (b.clone(), a.clone(), left_span)
         };
-        if let Some(s) = lower_span { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(&higher)), Some(s))); }
+        if let Some(s) = lower_span { warnings.push(TypeWarning::new(format!("promoted {} to {}; consider `as {}` to make this explicit", type_name(&lower), type_name(&higher), type_name(&higher)), Some(s))); }
         println!("[ty-debug] numeric_promotion result: promoted {} -> {}", type_name(&lower), type_name(&higher));
         Ok(higher)
     } else {
@@ -291,7 +291,7 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                                 // prefer the literal's span if available; fall back to parent span
                                 let s = if left_is_int01 || left_is_float01 { extract_span_from_expr(left) } else { extract_span_from_expr(right) };
                                 let s = s.or(span_clone);
-                                if let Some(s) = s { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison; consider an explicit cast", Some(s))); }
+                                if let Some(s) = s { warnings.push(TypeWarning::new("coerced numeric literal to bool in comparison; consider `as bool`", Some(s))); }
                                 Ok(Type::Bool)
                             } else {
                                 Err(TypeError::new("comparison operands must have the same type (i32, i64, f32, f64 or bool)", extract_span_from_expr(left).or(extract_span_from_expr(right))))
@@ -318,7 +318,7 @@ fn type_of_expr(expr: &Expr, env: &SymbolTable, warnings: &mut Vec<TypeWarning>)
                     // allow literal 0/1 -> bool coercion with warning
                     if matches!(**cond, Expr::Literal(Literal::Int(i)) if i == 0 || i == 1) {
                         let s = extract_span_from_expr(cond).or(*span);
-                        if let Some(s) = s { warnings.push(TypeWarning::new("coerced integer literal to bool in if condition", Some(s))); }
+                        if let Some(s) = s { warnings.push(TypeWarning::new("coerced integer literal to bool in if condition; consider `as bool`", Some(s))); }
                     } else {
                         errors.push(TypeError::new(format!("if condition must be `bool`, found i32"), extract_span_from_expr(cond).or(*span)));
                     }

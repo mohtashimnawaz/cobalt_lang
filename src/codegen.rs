@@ -488,6 +488,38 @@ mod llvm_codegen {
             // Should contain an integer compare (icmp ne)
             assert!(ir.contains("icmp") || ir.contains("icmp ne"));
         }
+
+        // Runtime integration test: compile to object, link with clang, run and assert runtime result
+        #[test]
+        fn runtime_integration_casts() {
+            use std::fs::File;
+            use std::io::Write;
+            use std::process::Command;
+            use std::env::temp_dir;
+            // Function converts a float 2.5 -> i32 (should truncate to 2)
+            let m = Module { items: vec![Item::Function { name: "to_int".to_string(), params: vec![], ret_type: Type::I32, body: Expr::Cast { expr: Box::new(Expr::Literal(Literal::Float(2.5))), ty: Type::I32, span: None }, span: None }] };
+            let td = temp_dir().join(format!("cobalt_runtime_test_{}", std::process::id()));
+            let _ = std::fs::create_dir_all(&td);
+            let obj_path = td.join("module.o");
+            compile_module_to_object(&m, "test_runtime", &obj_path).expect("compile to object");
+            // write a small C main that calls to_int and returns its result
+            let main_c = td.join("main.c");
+            let mut f = File::create(&main_c).expect("create main.c");
+            f.write_all(b"extern int to_int(); int main(){ return to_int(); }").expect("write main.c");
+            // use clang to link
+            let clang = std::env::var("CC").unwrap_or_else(|_| "clang".to_string());
+            let out_exe = td.join("run_test");
+            let status = Command::new(&clang)
+                .args(&[obj_path.to_str().unwrap(), main_c.to_str().unwrap(), "-o", out_exe.to_str().unwrap()])
+                .status()
+                .expect("link with clang");
+            assert!(status.success(), "link failed");
+            let run_status = Command::new(out_exe.to_str().unwrap())
+                .status()
+                .expect("run test");
+            // main returns 2 (truncated from 2.5)
+            assert_eq!(run_status.code(), Some(2));
+        }
     }
 }
 

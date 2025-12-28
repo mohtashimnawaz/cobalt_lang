@@ -104,6 +104,8 @@ jobs:
         run: |
           brew update
           brew install llvm
+          # make Homebrew LLVM available on PATH for subsequent steps
+          echo "PATH=$(brew --prefix llvm)/bin:$PATH" >> $GITHUB_ENV
 
       - name: Install Rust toolchain
         uses: actions-rs/toolchain@v1
