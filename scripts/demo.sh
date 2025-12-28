@@ -25,8 +25,8 @@ fi
 echo "1) Building object (requires --features llvm)..."
 cargo run --features llvm -- build $EXAMPLE --output $OUT_OBJ
 
-echo "2) Generating textual IR (falling back to non-llvm path)"
-cargo run -- build $EXAMPLE --output $OUT_LL || true
+echo "2) Generating C fallback (non-LLVM)"
+cargo run -- build $EXAMPLE --output promo.c || true
 
 # Write a small C main that calls to_int()
 cat > $MAIN_C <<'C'
