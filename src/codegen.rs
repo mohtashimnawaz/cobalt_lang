@@ -13,7 +13,7 @@ pub fn compile_module_to_ir(_module: &Module, _name: &str) -> Result<String> {
 mod llvm_codegen {
     use super::*;
     use std::collections::HashMap;
-    use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Literal, Param};
+    use crate::ast::{BinaryExpr, BinaryOp, Expr, Item, Literal, Param, Type};
     use inkwell::builder::Builder;
     use inkwell::context::Context;
     use inkwell::module::Module as LLVMModule;
@@ -49,6 +49,9 @@ mod llvm_codegen {
         fn to_llvm_type(&self, ty: &Type) -> BasicTypeEnum<'ctx> {
             match ty {
                 Type::I32 => self.i32_type().into(),
+                Type::I64 => self.context.i64_type().into(),
+                Type::F32 => self.context.f32_type().into(),
+                Type::F64 => self.context.f64_type().into(),
                 Type::Bool => self.bool_type().into(),
                 Type::Func { params, ret } => {
                     let param_types: Vec<BasicTypeEnum> = params.iter().map(|p| self.to_llvm_type(p)).collect();
@@ -279,6 +282,7 @@ mod llvm_codegen {
                         Err(anyhow!("call to non-function expression not supported in MVP"))
                     }
                 }
+                Expr::Cast { expr, ty, .. } => self.compile_cast(expr, ty.clone()),
                 Expr::Binary(_) => unreachable!("handled above"),
                 Expr::Call { .. } => unreachable!("handled above"),
             }
@@ -292,6 +296,56 @@ mod llvm_codegen {
                 None => builder.position_at_end(entry),
             }
             builder.build_alloca(ty, name)
+        }
+
+        fn compile_cast(&mut self, expr: &Expr, ty: Type) -> Result<BasicValueEnum<'ctx>> {
+            let val = self.compile_expr(expr)?;
+            match val {
+                BasicValueEnum::IntValue(iv) => {
+                    let src_bits = iv.get_type().get_bit_width();
+                    match ty {
+                        Type::I32 => {
+                            if src_bits == 32 { Ok(iv.into()) }
+                            else if src_bits < 32 { Ok(self.builder.build_int_s_extend(iv, self.i32_type(), "sexttmp").into()) }
+                            else { Ok(self.builder.build_int_truncate(iv, self.i32_type(), "trunctmp").into()) }
+                        }
+                        Type::I64 => {
+                            if src_bits == 64 { Ok(iv.into()) }
+                            else if src_bits < 64 { Ok(self.builder.build_int_s_extend(iv, self.context.i64_type(), "sexttmp").into()) }
+                            else { Ok(self.builder.build_int_truncate(iv, self.context.i64_type(), "trunctmp").into()) }
+                        }
+                        Type::F32 => Ok(self.builder.build_signed_int_to_float(iv, self.context.f32_type(), "sitofptmp").into()),
+                        Type::F64 => Ok(self.builder.build_signed_int_to_float(iv, self.context.f64_type(), "sitofptmp").into()),
+                        Type::Bool => {
+                            let zero = iv.get_type().const_int(0, false);
+                            Ok(self.builder.build_int_compare(inkwell::IntPredicate::NE, iv, zero, "boolcast").into())
+                        }
+                        Type::Func { .. } => Err(anyhow!("cannot cast integer to function type")),
+                    }
+                }
+                BasicValueEnum::FloatValue(fv) => {
+                    let src_bits = fv.get_type().get_bit_width();
+                    match ty {
+                        Type::F64 => {
+                            if src_bits == 64 { Ok(fv.into()) }
+                            else { Ok(self.builder.build_float_ext(fv, self.context.f64_type(), "fexttmp").into()) }
+                        }
+                        Type::F32 => {
+                            if src_bits == 32 { Ok(fv.into()) }
+                            else { Ok(self.builder.build_float_trunc(fv, self.context.f32_type(), "ftrunctmp").into()) }
+                        }
+                        Type::I32 => Ok(self.builder.build_float_to_signed_int(fv, self.i32_type(), "fptositmp").into()),
+                        Type::I64 => Ok(self.builder.build_float_to_signed_int(fv, self.context.i64_type(), "fptositmp").into()),
+                        Type::Bool => {
+                            let zero = self.context.f64_type().const_float(0.0);
+                            Ok(self.builder.build_float_compare(inkwell::FloatPredicate::ONE, fv, zero, "boolcast").into())
+                        }
+                        Type::Func { .. } => Err(anyhow!("cannot cast float to function type")),
+                    }
+                }
+                BasicValueEnum::PointerValue(_) => Err(anyhow!("cannot cast pointer values in MVP")),
+                BasicValueEnum::IntVectorValue(_) => Err(anyhow!("vector casts not supported")),
+            }
         }
     }
 
@@ -335,6 +389,14 @@ mod llvm_codegen {
             let ir = compile_module_to_ir(&m, "test").expect("codegen");
             assert!(ir.contains("define i32 @add(i32 %"));
             assert!(ir.contains("add i32"));
+        }
+
+        fn compile_cast_int_to_float() {
+            let m = Module { items: vec![Item::Function { name: "to_double".to_string(), params: vec![Param { name: "x".to_string(), ty: Type::I32 }], ret_type: Type::F64, body: Expr::Cast { expr: Box::new(Expr::Var("x".to_string())), ty: Type::F64, span: None }, span: None }] };
+            let ir = compile_module_to_ir(&m, "test_cast").expect("codegen");
+            assert!(ir.contains("define double @to_double(i32 %"));
+            // Ensure an int-to-float conversion instruction (sitofp) appears
+            assert!(ir.contains("sitofp i32"));
         }
     }
 }
