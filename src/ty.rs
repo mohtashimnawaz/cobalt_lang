@@ -167,10 +167,48 @@ fn type_check_core(module: &Module) -> (Vec<TypeError>, Vec<TypeWarning>) {
             match type_of_expr(body, &sym, &mut warnings) {
                 Ok(body_ty) => {
                     if body_ty != *ret_type {
-                        errors.push(TypeError::new(
-                            format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
-                            span.or_else(|| extract_span_from_expr(body)),
-                        ));
+                        // If both body and declared return are numeric, try to coerce to the declared return type
+                        if type_rank(&body_ty).is_some() && type_rank(ret_type).is_some() {
+                            // If the body is an arithmetic Binary expression, prefer promoting the integer side to the declared float
+                            if let Expr::Binary(BinaryExpr { op, left, right, .. }) = body {
+                                match op {
+                                    BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
+                                        // recompute operand types (without adding extra errors)
+                                        let mut tmp_warnings = Vec::new();
+                                        let lty = match type_of_expr(left, &sym, &mut tmp_warnings) { Ok(t) => t, Err(_) => Type::I32 };
+                                        let rty = match type_of_expr(right, &sym, &mut tmp_warnings) { Ok(t) => t, Err(_) => Type::I32 };
+                                        // pick the lower-ranked operand (likely an integer) and warn that it is promoted to the declared return
+                                        let lower = if type_rank(&lty) < type_rank(&rty) { lty } else { rty };
+                                        if type_rank(&lower).is_some() {
+                                            if let Some(s) = span.or_else(|| extract_span_from_expr(body)) { warnings.push(TypeWarning::new(format!("promoted {} to {}", type_name(&lower), type_name(ret_type)), Some(s))); }
+                                            // accept the declared return type instead of error
+                                        } else {
+                                            errors.push(TypeError::new(
+                                                format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
+                                                span.or_else(|| extract_span_from_expr(body)),
+                                            ));
+                                        }
+                                    }
+                                    _ => {
+                                        errors.push(TypeError::new(
+                                            format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
+                                            span.or_else(|| extract_span_from_expr(body)),
+                                        ));
+                                    }
+                                }
+                            } else {
+                                // not a binary arithmetic expression; report error as before
+                                errors.push(TypeError::new(
+                                    format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
+                                    span.or_else(|| extract_span_from_expr(body)),
+                                ));
+                            }
+                        } else {
+                            errors.push(TypeError::new(
+                                format!("function `{}` declared to return {:?} but body has type {:?}", name, ret_type, body_ty),
+                                span.or_else(|| extract_span_from_expr(body)),
+                            ));
+                        }
                     }
                 }
                 Err(mut es) => errors.append(&mut es),
