@@ -38,6 +38,17 @@ We run a split test strategy so heavy/slow tests don't overload developer machin
 
   A convenience script is provided at `scripts/heavy-test.sh` that runs the conservative heavy test command.
 
+- Demo script and examples:
+
+  - Example source is available at `examples/promo.cobalt` (promotions and casts demo).
+  - A demo script `scripts/demo.sh` will build the example (object via LLVM), link it with `clang`, run it, print the exit code and a snippet of the IR:
+
+    ```bash
+    ./scripts/demo.sh
+    ```
+
+  Note: `scripts/demo.sh` requires `clang`/`llvm` to be installed and available on your PATH (see installation instructions above).
+
 ## Contributing
 
 Open a PR and CI will run both fast and heavy tests (including LLVM-enabled job, if applicable). See `.github/workflows/ci.yml` for details.

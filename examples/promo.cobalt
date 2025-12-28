@@ -1,0 +1,11 @@
+// Example demonstrating promotions and casts
+let x: i64 = 1
+
+// Adds i64 and f32 -> promoted to f32
+fn to_f() -> f32 { x + 1.5 }
+
+// Explicit cast: f64 -> i32 (truncation)
+fn to_int() -> i32 { (2.5 as i32) }
+
+// Use a simple function to check mixed arithmetic
+fn add_mixed(a: i64) -> f64 { a + 1.5 }
