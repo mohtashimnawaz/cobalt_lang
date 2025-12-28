@@ -103,7 +103,11 @@ impl Parser {
         while !self.is_eof() {
             match self.parse_item() {
                 Ok(item) => items.push(item),
-                Err(e) => errors.push(e),
+                Err(e) => {
+                    // push error and advance one token to avoid infinite loops on unrecognized tokens
+                    errors.push(e);
+                    let _ = self.bump();
+                }
             }
         }
         if errors.is_empty() { Ok(Module { items }) } else { Err(errors) }
@@ -125,8 +129,9 @@ impl Parser {
                         let param_name = self.expect_ident()?;
                         self.expect_token(Token::Colon)?;
                         let ty = match self.bump() {
-                            Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
-                            Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
+                            Some((Token::Ident(s), _)) if s == "i32" => Type::I32,                            Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                            Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
+                            Some((Token::Ident(s), _)) if s == "f64" => Type::F64,                            Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
                             Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in param type: {:?}", tok), Some(span))),
                             None => return Err(ParseError::new("unexpected EOF in parameter list", None)),
                         };
@@ -142,6 +147,8 @@ impl Parser {
                     self.bump();
                     match self.bump() {
                         Some((Token::Ident(s), _)) if s == "i32" => Type::I32,
+                        Some((Token::Ident(s), _)) if s == "i64" => Type::I64,
+                        Some((Token::Ident(s), _)) if s == "f32" => Type::F32,
                         Some((Token::Ident(s), _)) if s == "f64" => Type::F64,
                         Some((Token::Ident(s), _)) if s == "bool" => Type::Bool,
                         Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in return type: {:?}", tok), Some(span))),
@@ -167,6 +174,9 @@ impl Parser {
                     self.bump();
                     match self.bump() {
                         Some((Token::Ident(s), _)) if s == "i32" => Some(Type::I32),
+                        Some((Token::Ident(s), _)) if s == "i64" => Some(Type::I64),
+                        Some((Token::Ident(s), _)) if s == "f32" => Some(Type::F32),
+                        Some((Token::Ident(s), _)) if s == "f64" => Some(Type::F64),
                         Some((Token::Ident(s), _)) if s == "bool" => Some(Type::Bool),
                         Some((tok, span)) => return Err(ParseError::new(format!("unexpected token in let type: {:?}", tok), Some(span))),
                         None => return Err(ParseError::new("unexpected EOF in let type", None)),
@@ -198,6 +208,8 @@ impl Parser {
             Err(err) => Err(vec![err]),
         }
     }
+
+
 
     // Inner parser functions return single `ParseError` values and are composed above
     fn parse_expr_inner(&mut self) -> Result<Expr, ParseError> {
@@ -515,6 +527,22 @@ mod tests_parser_additional {
                 }
             }
             _ => panic!("unexpected items"),
+        }
+    }
+
+    #[test]
+    fn parse_let_and_fn_with_i64_f32() {
+        let src = "let x: i64 = 1 fn f() -> f32 { x + 1.5 }";
+        let module = parse_module(src).expect("parse module");
+        // should produce two items: a let and a function
+        assert_eq!(module.items.len(), 2);
+        match &module.items[0] {
+            Item::Let { name, ty: Some(t), .. } => { assert_eq!(name, "x"); assert!(matches!(t, Type::I64)); }
+            _ => panic!("expected top-level let with i64")
+        }
+        match &module.items[1] {
+            Item::Function { name, params: _, ret_type, .. } => { assert_eq!(name, "f"); assert!(matches!(ret_type, Type::F32)); }
+            _ => panic!("expected function f")
         }
     }
 }

@@ -7,6 +7,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Abort long-running or runaway CI runs after this many minutes
+    timeout-minutes: 20
+    # Keep only one workflow run per branch in progress to avoid spurious duplicates
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: true
 
     steps:
       - name: Checkout
@@ -30,11 +36,45 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Fast tests (non-ignored)
-        run: cargo test -q
+        shell: bash -l {0}
+        env:
+          RUST_BACKTRACE: 1
+        run: |
+          set -o pipefail
+          # run single-threaded and capture output so we can upload on failure
+          cargo test -- --test-threads=1 --nocapture 2>&1 | tee test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload fast test logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fast-test-logs
+          path: test.log
 
       - name: Heavy tests (ignored) — run with conservative settings
         env:
           CARGO_BUILD_JOBS: 1
           RUST_TEST_THREADS: 1
           RUSTFLAGS: -C codegen-units=1 -C opt-level=0
-        run: cargo test -- --ignored
+        shell: bash -l {0}
+        run: |
+          set -o pipefail
+          cargo test -- --ignored --test-threads=1 --nocapture 2>&1 | tee heavy-test.log
+          exit ${PIPESTATUS[0]}
+
+      - name: Upload heavy test logs (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: heavy-test-logs
+          path: heavy-test.log
+
+      - name: Upload all test logs (always)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: all-test-logs
+          path: |
+            test.log
+            heavy-test.log
